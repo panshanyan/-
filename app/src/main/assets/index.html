@@ -1,0 +1,600 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>黑盒子分析</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
+<style>
+/* VOICE: a field tool for an FPV pilot at the flying spot, clear and direct
+   IDEA: the goggles' OSD overlaid on a flight trace, read like an instrument strip
+   PICTURE: the stacked trace strips themselves (gyro vs stick, motors, battery), with findings pinned to them
+   COLOUR and TYPE: white or night ground, ink text, prop-orange accent, signal red/amber/green for verdicts; Barlow Semi Condensed + Noto Sans TC
+   LAYOUT: one column on phone: load button, verdict cards, strips, spectrum, settings */
+:root{color-scheme:light dark;--bg:light-dark(#f6f7f9,#0d1117);--card:light-dark(#fff,#161b22);--ink:light-dark(#151a21,#e8ebef);--mute:light-dark(#5b6472,#9aa4b2);--line:light-dark(#e1e4e9,#2a313c);--acc:#ff5a1f;--bad:#e5383b;--warn:#f2a10c;--ok:#22a35a;--grid:light-dark(#eceef2,#1f252e)}
+:root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
+*{box-sizing:border-box;min-width:0}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Noto Sans TC",system-ui,sans-serif;overflow-x:clip}
+h1,h2{font-family:"Barlow Semi Condensed","Noto Sans TC",sans-serif;line-height:1.1;margin:0;text-wrap:balance}
+h1{font-size:clamp(30px,6vw,44px)}h2{font-size:22px;margin-bottom:12px}
+.wrap{max-width:1100px;margin:0 auto;padding:0 max(4vw,14px)}
+header{background:#151a21;color:#fff;padding:22px 0 20px;border-bottom:3px solid var(--acc)}
+header .wrap{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
+header p{margin:4px 0 0;color:#c6ccd6;font-size:14px}
+.btn{appearance:none;border:0;border-radius:10px;min-height:44px;padding:10px 18px;font:600 16px "Noto Sans TC",sans-serif;cursor:pointer;background:var(--acc);color:#fff}
+.btn:focus-visible,.chip:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+.btn.sec{background:var(--card);color:var(--ink);border:1px solid var(--line)}
+section{padding:22px 0}
+.empty{border:2px dashed var(--line);border-radius:14px;padding:28px;text-align:center;color:var(--mute);background:var(--card)}
+.empty.drag{border-color:var(--acc)}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;min-height:40px;padding:6px 14px;font:500 14px "Noto Sans TC",sans-serif;cursor:pointer}
+.chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
+.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
+.sum div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
+.sum b{display:block;font:700 19px/1.2 "Barlow Semi Condensed","Noto Sans TC",sans-serif;overflow-wrap:anywhere}
+.sum span{font-size:13px;color:var(--mute)}
+.finds{display:grid;gap:10px}
+.f{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--ok);border-radius:12px;padding:12px 14px}
+.f.bad{border-left-color:var(--bad)}.f.warn{border-left-color:var(--warn)}
+.f h3{margin:0 0 4px;font-size:17px}.f p{margin:0;font-size:15px;color:var(--mute)}
+.f button{margin-top:8px;min-height:36px;padding:4px 12px;font-size:14px}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
+.tools input[type=range]{flex:1 1 200px;accent-color:var(--acc);min-height:44px}
+.tools output{font:600 15px "Barlow Semi Condensed",sans-serif;white-space:nowrap}
+.strip{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;padding:8px 8px 4px}
+.strip .lab{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px;color:var(--mute);padding:0 4px 4px}
+.strip .lab i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.strip canvas{display:block;width:100%;height:150px;touch-action:pan-y}
+.spec canvas{height:200px}
+table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;font-size:14px}
+td,th{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+th{font-weight:600;color:var(--mute);white-space:nowrap}
+tr.go{cursor:pointer}tr.go:hover,tr.go:focus-visible{background:var(--grid);outline:none}
+.scroll{overflow-x:auto}
+.note{font-size:13px;color:var(--mute);margin-top:8px}
+.busy{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;place-items:center;color:#fff;font-size:18px;z-index:9}
+.busy.on{display:grid}
+.hide{display:none}
+@media(max-width:600px){.strip canvas{height:130px}}
+</style>
+</head>
+<body>
+<header><div class="wrap">
+  <div><h1>黑盒子分析</h1><p>Betaflight .bbl / .bfl / .zip，在手機上直接解析，檔案不會上傳</p></div>
+  <label class="btn" for="file">選擇黑盒子檔</label>
+  <input id="file" type="file" multiple accept=".bbl,.bfl,.txt,.zip,.BBL,.BFL" class="hide">
+</div></header>
+
+<main class="wrap">
+  <section id="start">
+    <div class="empty" id="drop">
+      <h2>選一份或多份 log 開始</h2>
+      <p>可以一次選多個檔（含 zip）。會自動檢查：低頻震盪與觸發原因、馬達失步、重心偏移、電池壓降、陀螺儀雜訊、上鎖原因與失控保護。</p>
+      <p class="note">加到主畫面：在瀏覽器選單點「加到主畫面」，之後就能像 App 一樣打開。</p>
+    </div>
+  </section>
+
+  <div id="out" class="hide">
+    <section>
+      <div class="chips" id="logs"></div>
+      <div class="sum" id="sum"></div>
+    </section>
+    <section>
+      <h2>診斷結果</h2>
+      <div class="finds" id="finds"></div>
+    </section>
+    <section>
+      <h2>飛行曲線</h2>
+      <div class="chips" id="panels"></div>
+      <div class="tools">
+        <button class="chip" data-z="0">全部</button><button class="chip" data-z="10">10 秒</button><button class="chip" data-z="2">2 秒</button><button class="chip" data-z="0.5">0.5 秒</button>
+        <input type="range" id="pos" min="0" max="1000" value="0" aria-label="時間位置"><output id="tw"></output>
+      </div>
+      <div id="strips"></div>
+      <p class="note">左右拖曳圖表可以移動時間；點診斷卡片上的「看這段」會直接跳過去。</p>
+    </section>
+    <section>
+      <h2>陀螺儀頻譜（未濾波）</h2>
+      <div class="strip spec"><div class="lab" id="speclab"></div><canvas id="spec"></canvas></div>
+      <p class="note">80 Hz 以上的峰通常是馬達、槳或機架造成的雜訊；越低越平越好。</p>
+    </section>
+    <section>
+      <h2>偵測到的震盪片段</h2><p class="note" style="margin-top:-6px">點一列可以跳到那一段曲線。</p>
+      <div class="scroll"><table id="bursts"></table></div>
+    </section>
+    <section>
+      <h2>關鍵設定</h2>
+      <div class="scroll"><table id="cfg"></table></div>
+    </section>
+  </div>
+</main>
+<div class="busy" id="busy">解析中…</div>
+<script>
+// ---- Betaflight blackbox decoder ----
+const BB = (() => {
+  const sx = (v, b) => { const s = 32 - b; return (v << s) >> s; };
+  function splitLogs(u8) {
+    const mark = [72,32,80,114,111,100,117,99,116,58]; // "H Product:"
+    const starts = [];
+    outer: for (let i = 0; i < u8.length - mark.length; i++) {
+      if (u8[i] !== 72) continue;
+      for (let j = 1; j < mark.length; j++) if (u8[i + j] !== mark[j]) continue outer;
+      if (i === 0 || u8[i - 1] === 10 || true) starts.push(i);
+    }
+    return starts.map((s, k) => u8.subarray(s, k + 1 < starts.length ? starts[k + 1] : u8.length));
+  }
+  function decode(u8) {
+    const hdr = {}; let p = 0; const n8 = u8.length;
+    while (p < n8 - 1 && u8[p] === 72 && u8[p + 1] === 32) {
+      let e = p; while (e < n8 && u8[e] !== 10) e++;
+      let line = ''; for (let i = p + 2; i < e; i++) line += String.fromCharCode(u8[i]);
+      const c = line.indexOf(':'); if (c > 0) hdr[line.slice(0, c)] = line.slice(c + 1);
+      p = e + 1;
+    }
+    const il = s => (s || '').split(',').filter(x => x !== '').map(Number);
+    const def = (t, base) => {
+      if (!hdr['Field ' + t + ' name'] && !base) return null;
+      const names = base ? base.names : hdr['Field ' + t + ' name'].split(',');
+      return { names, signed: hdr['Field ' + t + ' signed'] ? il(hdr['Field ' + t + ' signed']) : (base ? base.signed : names.map(() => 0)),
+        pred: il(hdr['Field ' + t + ' predictor']), enc: il(hdr['Field ' + t + ' encoding']) };
+    };
+    const I = def('I'); if (!I) throw new Error('找不到欄位定義（不是 Betaflight 黑盒子檔？）');
+    const P = def('P', I), S = def('S'), G = def('G'), H = def('H');
+    const mo = il(hdr['motorOutput'] || hdr['minmotor'] || '0');
+    const minmotor = mo[0] || Number(hdr['minmotor'] || 0);
+    const minthr = Number(hdr['minthrottle'] || minmotor);
+    const vbatref = Number(hdr['vbatref'] || 0);
+    let pint = (hdr['P interval'] || '1').split('/').map(Number);
+    const pstep = pint.length > 1 ? pint[1] / pint[0] : pint[0];
+    const n = I.names.length, iM0 = I.names.indexOf('motor[0]');
+    const iHome0 = G ? G.names.indexOf('GPS_coord[0]') : -1;
+    let r = p;
+    const byte = () => { if (r >= n8) throw 0; return u8[r++]; };
+    const uvb = () => { let v = 0, m = 1; for (let i = 0; i < 5; i++) { const b = byte(); v += (b & 127) * m; if (b < 128) return v >>> 0; m *= 128; } throw 1; };
+    const svb = () => { const u = uvb(); return (u >>> 1) ^ -(u & 1); };
+    function t2s32(lead) {
+      const out = [0, 0, 0];
+      for (let i = 0; i < 3; i++) {
+        const t = lead & 3; lead >>= 2;
+        if (t === 0) out[i] = sx(byte(), 8);
+        else if (t === 1) { const a = byte(), b = byte(); out[i] = sx(a | b << 8, 16); }
+        else if (t === 2) { const a = byte(), b = byte(), c = byte(); out[i] = sx(a | b << 8 | c << 16, 24); }
+        else { const a = byte(), b = byte(), c = byte(), d = byte(); out[i] = a | b << 8 | c << 16 | d << 24; }
+      }
+      return out;
+    }
+    function rd(fd, out) {
+      const N = fd.names.length; let i = 0;
+      while (i < N) {
+        const e = fd.enc[i];
+        if (e === 0) out[i++] = svb();
+        else if (e === 1) out[i++] = uvb();
+        else if (e === 3) out[i++] = -sx(uvb(), 14);
+        else if (e === 9) out[i++] = 0;
+        else if (e === 7 || e === 10) {
+          let c = 0; while (i + c < N && c < 3 && fd.enc[i + c] === e) c++;
+          const lead = byte(), sel = lead >> 6; let v;
+          if (sel === 0) v = [sx(lead >> 4, 2), sx(lead >> 2, 2), sx(lead, 2)];
+          else if (e === 7 && sel === 1) { const b = byte(); v = [sx(lead, 4), sx(b >> 4, 4), sx(b, 4)]; }
+          else if (e === 7 && sel === 2) { const a = byte(), b = byte(); v = [sx(lead, 6), sx(a, 6), sx(b, 6)]; }
+          else if (e === 10 && sel === 1) { const b = byte(); v = [sx((lead & 0x3E) >> 1, 5), sx(((lead & 1) << 4) | (b >> 4), 5), sx(b, 4)]; }
+          else if (e === 10 && sel === 2) { const a = byte(), b = byte(); v = [sx(((lead & 0x3F) << 2) | (a >> 6), 8), sx(((a & 0x3F) << 1) | (b >> 7), 7), sx(b, 7)]; }
+          else v = t2s32(lead);
+          for (let j = 0; j < c; j++) out[i + j] = v[j]; i += c;
+        } else if (e === 8) {
+          let c = 0; while (i + c < N && c < 4 && fd.enc[i + c] === 8) c++;
+          let sel = byte(), nib = 0, buf = 0;
+          for (let j = 0; j < 4; j++) {
+            const t = sel & 3; let v = 0;
+            if (t === 1) { if (!nib) { buf = byte(); v = sx(buf >> 4, 4); nib = 1; } else { v = sx(buf, 4); nib = 0; } }
+            else if (t === 2) { if (!nib) v = sx(byte(), 8); else { const c1 = byte(); v = sx(((buf & 15) << 4) | (c1 >> 4), 8); buf = c1; } }
+            else if (t === 3) { if (!nib) { const a = byte(), b = byte(); v = sx(a << 8 | b, 16); } else { const a = byte(), b = byte(); v = sx(((buf & 15) << 12) | (a << 4) | (b >> 4), 16); buf = b; } }
+            if (j < c) out[i + j] = v; sel >>= 2;
+          }
+          i += c;
+        } else if (e === 6) {
+          let c = 0; while (i + c < N && c < 8 && fd.enc[i + c] === 6) c++;
+          if (c === 1) out[i] = svb();
+          else { let h = byte(); for (let j = 0; j < c; j++) { out[i + j] = (h & 1) ? svb() : 0; h >>= 1; } }
+          i += c;
+        } else throw 2;
+      }
+    }
+    let cap = Math.max(1024, (n8 / 12) | 0);
+    let cols = I.names.map(() => new Int32Array(cap)); let time = new Float64Array(cap);
+    let rows = 0;
+    const grow = () => { cap *= 2; cols = cols.map(a => { const b = new Int32Array(cap); b.set(a); return b; }); const t2 = new Float64Array(cap); t2.set(time); time = t2; };
+    const events = [], slow = [], gps = []; let home = [0, 0];
+    let prev = null, prev2 = null, lastTime = 0, corrupt = 0;
+    const cur = new Array(n).fill(0), raw = new Array(n).fill(0);
+    const sRaw = S ? new Array(S.names.length).fill(0) : null;
+    const gRaw = G ? new Array(G.names.length).fill(0) : null;
+    const hRaw = H ? new Array(H.names.length).fill(0) : null;
+    const valid = new Set([73, 80, 69, 71, 72, 83]);
+    const tIdx = I.names.indexOf('time');
+    let ended = false;
+    while (r < n8 && !ended) {
+      const start = r;
+      try {
+        const ft = byte(); let main = 0;
+        if (ft === 73) { // I
+          rd(I, raw);
+          for (let k = 0; k < n; k++) {
+            const pr = I.pred[k]; let v = raw[k];
+            if (pr === 9) v += vbatref; else if (pr === 11) v += minmotor; else if (pr === 4) v += minthr; else if (pr === 8) v += 1500;
+            cur[k] = v;
+          }
+          for (let k = 0; k < n; k++) if (I.pred[k] === 5) cur[k] += cur[iM0];
+          main = 1;
+        } else if (ft === 80) { // P
+          if (!prev) throw 3;
+          rd(P, raw);
+          for (let k = 0; k < n; k++) {
+            const pr = P.pred[k]; let v = raw[k];
+            if (pr === 6) v = prev[k] + pstep;
+            else if (pr === 1) v += prev[k];
+            else if (pr === 2) v += 2 * prev[k] - prev2[k];
+            else if (pr === 3) { const s = prev[k] + prev2[k]; v += P.signed[k] ? Math.trunc(s / 2) : Math.floor(s / 2); }
+            else if (pr === 4) v += minthr; else if (pr === 8) v += 1500; else if (pr === 9) v += vbatref; else if (pr === 11) v += minmotor;
+            else if (pr === 5) v += cur[iM0];
+            cur[k] = v;
+          }
+          main = 2;
+        } else if (ft === 69) { // E
+          const et = byte(); let ev;
+          if (et === 0) ev = { type: 'SYNC_BEEP', time: uvb() };
+          else if (et === 13) { const f = byte(); if (f & 128) { for (let q = 0; q < 4; q++) byte(); ev = { type: 'ADJ', f }; } else ev = { type: 'ADJ', f, v: svb() }; }
+          else if (et === 14) ev = { type: 'RESUME', iter: uvb(), time: uvb() };
+          else if (et === 15) ev = { type: 'DISARM', reason: uvb() };
+          else if (et === 30) ev = { type: 'FLIGHT_MODE', flags: uvb(), last: uvb() };
+          else if (et === 255) { ev = { type: 'LOG_END' }; ended = true; }
+          else throw 4;
+          ev.t = lastTime; events.push(ev);
+        } else if (ft === 83 && S) { rd(S, sRaw); slow.push([lastTime, ...sRaw]); }
+        else if (ft === 71 && G) {
+          rd(G, gRaw); const v = gRaw.slice();
+          for (let k = 0; k < v.length; k++) { if (G.pred[k] === 10) v[k] += lastTime; if (G.pred[k] === 7) v[k] += home[k - iHome0] || 0; }
+          gps.push(v);
+        } else if (ft === 72 && H) { rd(H, hRaw); home = hRaw.slice(0, 2); }
+        else throw 5;
+        if (!ended && r < n8 && !valid.has(u8[r])) throw 6;
+        if (main) {
+          if (main === 2 && rows && (cur[tIdx] < lastTime || cur[tIdx] - lastTime > 2e6)) throw 7;
+          if (rows >= cap) grow();
+          for (let k = 0; k < n; k++) cols[k][rows] = cur[k];
+          time[rows] = cur[tIdx]; rows++; lastTime = cur[tIdx];
+          if (main === 1) { prev = cur.slice(); prev2 = prev; } else { prev2 = prev; prev = cur.slice(); }
+        }
+      } catch (e) {
+        if (e instanceof Error && !(e instanceof RangeError)) throw e;
+        corrupt++; r = start + 1; prev = prev2 = null;
+        while (r < n8 && u8[r] !== 73) r++;
+      }
+    }
+    const F = {}; I.names.forEach((nm, k) => F[nm] = cols[k].subarray(0, rows));
+    const t0 = time[0];
+    const t = new Float64Array(rows); for (let i = 0; i < rows; i++) t[i] = (time[i] - t0) / 1e6;
+    for (const e of events) e.ts = (e.t - t0) / 1e6;
+    return { hdr, names: I.names, F, t, rows, events, slow: slow.map(s => [(s[0] - t0) / 1e6, ...s.slice(1)]), slowNames: S ? S.names : [], gps, corrupt };
+  }
+  return { decode, splitLogs };
+})();
+if (typeof module !== 'undefined') module.exports = BB;
+
+// ---- analysis ----
+const AN = (() => {
+  const DISARM = { 0: '解鎖被禁止', 1: '失控保護 (failsafe)', 2: '油門逾時', 3: '搖桿上鎖', 4: '開關上鎖', 5: '墜機保護', 6: '防暴衝 (runaway takeoff)', 7: 'GPS 救援', 8: '序列指令', 9: '降落上鎖', 255: '系統' };
+  const AXN = ['Roll', 'Pitch', 'Yaw'];
+  function median(a) { const b = Float64Array.from(a).sort(); return b.length ? b[b.length >> 1] : NaN; }
+  function pct(a, q) { const b = Float64Array.from(a).sort(); return b.length ? b[Math.min(b.length - 1, Math.floor(q * b.length))] : NaN; }
+  function biquad(x, fs, type, f0, Q) {
+    const w = 2 * Math.PI * f0 / fs, cs = Math.cos(w), al = Math.sin(w) / (2 * Q);
+    let b0, b1, b2; const a0 = 1 + al, a1 = -2 * cs, a2 = 1 - al;
+    if (type === 'bp') { b0 = al; b1 = 0; b2 = -al; } else if (type === 'lp') { b0 = (1 - cs) / 2; b1 = 1 - cs; b2 = b0; } else { b0 = (1 + cs) / 2; b1 = -(1 + cs); b2 = b0; }
+    const y = new Float64Array(x.length); let x1 = x[0] || 0, x2 = x1, y1 = type === 'lp' ? x1 : 0, y2 = y1;
+    for (let i = 0; i < x.length; i++) { const v = (b0 * x[i] + b1 * x1 + b2 * x2 - a1 * y1 - a2 * y2) / a0; x2 = x1; x1 = x[i]; y2 = y1; y1 = v; y[i] = v; }
+    return y;
+  }
+  const rev = a => a.slice().reverse();
+  function filtfilt(x, fs, type, f0, Q) { return rev(biquad(rev(biquad(x, fs, type, f0, Q)), fs, type, f0, Q)); }
+  function band(x, fs, lo, hi) { let y = filtfilt(Float64Array.from(x), fs, 'hp', lo, 0.707); y = filtfilt(y, fs, 'lp', hi, 0.707); return y; }
+  function envelope(x, fs, win) { const n = x.length, w = Math.max(3, Math.round(win * fs)), e = new Float64Array(n); let s = 0; const sq = x.map(v => v * v);
+    for (let i = 0; i < n; i++) { s += sq[i]; if (i >= w) s -= sq[i - w]; e[i] = Math.sqrt(Math.max(0, s) / Math.min(i + 1, w)) * Math.SQRT2; }
+    const o = new Float64Array(n), h = w >> 1; for (let i = 0; i < n; i++) o[i] = e[Math.min(n - 1, i + h)]; return o; }
+  function fft(re, im) { const n = re.length; for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { [re[i], re[j]] = [re[j], re[i]]; [im[i], im[j]] = [im[j], im[i]]; } }
+    for (let len = 2; len <= n; len <<= 1) { const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a);
+      for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let j = 0; j < len / 2; j++) { const ur = re[i + j], ui = im[i + j], vr = re[i + j + len / 2] * cr - im[i + j + len / 2] * ci, vi = re[i + j + len / 2] * ci + im[i + j + len / 2] * cr;
+        re[i + j] = ur + vr; im[i + j] = ui + vi; re[i + j + len / 2] = ur - vr; im[i + j + len / 2] = ui - vi; const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } } } }
+  function welch(x, fs, N = 1024) { const P = new Float64Array(N / 2); let cnt = 0; const win = new Float64Array(N).map((_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1)));
+    for (let s = 0; s + N <= x.length; s += N / 2) { let m = 0; for (let i = 0; i < N; i++) m += x[s + i]; m /= N; const re = new Float64Array(N), im = new Float64Array(N);
+      for (let i = 0; i < N; i++) re[i] = (x[s + i] - m) * win[i]; fft(re, im); for (let k = 0; k < N / 2; k++) P[k] += re[k] * re[k] + im[k] * im[k]; cnt++; }
+    if (cnt) for (let k = 0; k < N / 2; k++) P[k] /= cnt; return { P, df: fs / N, cnt }; }
+
+  function analyze(L) {
+    const { F, t, rows, hdr } = L, has = k => !!F[k];
+    const fs = rows > 1 ? (rows - 1) / (t[rows - 1] - t[0]) : 1;
+    const thr = F['rcCommand[3]'];
+    let fa = 0, la = rows - 1; while (fa < rows && thr[fa] <= 1050) fa++; while (la > 0 && thr[la] <= 1050) la--;
+    const armed = new Uint8Array(rows); for (let i = fa; i <= la; i++) armed[i] = 1;
+    const res = { fs, dur: t[rows - 1], findings: [], bursts: [], info: {}, stats: {} };
+    const add = (lvl, title, body, jump) => res.findings.push({ lvl, title, body, jump });
+    // disarm / modes / failsafe
+    const dis = L.events.filter(e => e.type === 'DISARM');
+    res.info.disarm = dis.length ? dis.map(d => DISARM[d.reason] || ('代碼 ' + d.reason)).join('、') : '無紀錄（可能是斷電或記錄中斷）';
+    for (const d of dis) if ([1, 5, 6].includes(d.reason)) add('bad', '上鎖原因：' + DISARM[d.reason], d.reason === 1 ? '飛機是因為失控保護而上鎖，先檢查接收機訊號、天線與 RX 供電。' : d.reason === 5 ? '飛控判定墜機而自動上鎖。' : '飛控偵測到暴衝而上鎖，檢查馬達方向、槳方向與 IMU 安裝方向。', d.ts);
+    const sn = L.slowNames, fsI = sn.indexOf('failsafePhase'), rxI = sn.indexOf('rxSignalReceived');
+    const fsBad = L.slow.filter(s => (fsI >= 0 && s[fsI + 1] > 0) || (rxI >= 0 && s[rxI + 1] === 0));
+    if (fsBad.length) add('bad', '接收機訊號中斷 / failsafe', `有 ${fsBad.length} 筆慢速紀錄顯示訊號遺失或進入 failsafe，第一次在 ${fsBad[0][0].toFixed(1)} 秒。`, fsBad[0][0]);
+    // battery
+    if (has('vbatLatest')) {
+      const v = F['vbatLatest'], cur = F['amperageLatest'];
+      const vs = median(v.subarray(0, Math.min(rows, Math.round(fs)))) / 100, cells = Math.max(1, Math.ceil(vs / 4.35));
+      const vf = filtfilt(Float64Array.from(v), fs, 'lp', 25, 0.707); let vmin = 1e9, imax = 0; for (let i = 0; i < rows; i++) { if (armed[i] && vf[i] < vmin) vmin = vf[i]; if (cur && cur[i] > imax) imax = cur[i]; }
+      vmin /= 100; imax /= 100;
+      res.stats.batt = { vs, cells, vmin, imax, vend: median(v.subarray(Math.max(0, rows - Math.round(fs)))) / 100 };
+      const pc = vmin / cells;
+      if (pc < 3.0) add('warn', `電池壓降偏大：最低 ${pc.toFixed(2)} V/cell`, `${cells}S，起飛 ${vs.toFixed(2)} V，最低 ${vmin.toFixed(2)} V，峰值電流約 ${imax.toFixed(0)} A。壓降太深會讓馬達突然沒力，也傷電池。若同時有震盪，先處理震盪（馬達被打滿會造成瞬間大電流）。`);
+      else add('ok', `電池正常：最低 ${pc.toFixed(2)} V/cell`, `${cells}S，起飛 ${vs.toFixed(2)} V，最低 ${vmin.toFixed(2)} V，峰值電流約 ${imax.toFixed(0)} A。`);
+    }
+    // motors
+    const nm = [0, 1, 2, 3, 4, 5, 6, 7].filter(k => has(`motor[${k}]`)).length;
+    const mo = (hdr['motorOutput'] || '0,2047').split(',').map(Number), mMax = mo[1] || 2047, mMin = mo[0] || 0;
+    if (nm) {
+      let sat = 0, na = 0; for (let i = 0; i < rows; i++) if (armed[i]) { na++; for (let k = 0; k < nm; k++) if (F[`motor[${k}]`][i] >= mMax - 2) { sat++; break; } }
+      res.stats.sat = na ? sat / na : 0;
+      if (res.stats.sat > 0.02) add('warn', `馬達頂到上限 ${(res.stats.sat * 100).toFixed(1)}% 的時間`, '馬達常被打到 100%，代表動力餘量不足或有震盪讓輸出被頂滿；這段時間飛控無法完全控制姿態。');
+      if (nm === 4) {
+        const cr = []; const sp0 = F['setpoint[0]'], sp1 = F['setpoint[1]'];
+        for (let i = 0; i < rows; i++) if (armed[i] && Math.abs(sp0[i]) < 30 && Math.abs(sp1[i]) < 30) cr.push(i);
+        if (cr.length > fs) {
+          const md = [0, 1, 2, 3].map(k => median(cr.map(i => F[`motor[${k}]`][i])));
+          const rf = (md[0] + md[2]) / (md[1] + md[3]), lr = (md[2] + md[3]) / (md[0] + md[1]);
+          res.stats.balance = { md, rf, lr };
+          if (rf > 1.12 || rf < 0.89) add('warn', `重心偏${rf > 1 ? '後' : '前'}：${rf > 1 ? '後' : '前'}馬達多出 ${(Math.abs(rf - 1) * 100).toFixed(0)}% 輸出`, `平飛時馬達中位數（後右/前右/後左/前左）＝ ${md.map(x => x.toFixed(0)).join(' / ')}。把電池或相機往${rf > 1 ? '前' : '後'}移，讓四顆馬達負擔接近，可以多留一些控制餘量。`);
+          else add('ok', '重心前後平衡', `前後輸出比 ${rf.toFixed(2)}。`);
+          if (lr > 1.12 || lr < 0.89) add('warn', `左右不平衡：${lr > 1 ? '左' : '右'}側馬達多出 ${(Math.abs(lr - 1) * 100).toFixed(0)}%`, '可能是重心偏一側、某支槳受損或馬達較弱。');
+        }
+      }
+      // desync
+      if (has('eRPM[0]')) {
+        let evs = [];
+        for (let k = 0; k < nm; k++) {
+          const m = F[`motor[${k}]`], e = F[`eRPM[${k}]`]; let run = 0, st = 0;
+          for (let i = 0; i < rows; i++) {
+            let o = 0; for (let j = 0; j < nm; j++) if (j !== k) o += F[`eRPM[${j}]`][i]; o /= (nm - 1);
+            const bad = armed[i] && m[i] > (mMax - mMin) * 0.5 + mMin && e[i] < o * 0.45;
+            if (bad) { if (!run) st = i; run++; } else { if (run > fs * 0.02) evs.push({ k, t: t[st], d: run / fs }); run = 0; }
+          }
+        }
+        res.stats.desync = evs;
+        if (evs.length) add('bad', `疑似馬達失步 (desync)：${evs.length} 次`, evs.slice(0, 5).map(e => `M${e.k + 1} 在 ${e.t.toFixed(2)} 秒`).join('、') + '。高輸出時轉速卻掉很多，檢查該馬達、電調、焊點，或在電調調整 timing / demag。', evs[0].t);
+        else add('ok', '沒有馬達失步', '高輸出時四顆馬達轉速都跟得上指令。');
+      }
+    }
+    // oscillation bursts
+    const ag = Number(hdr['anti_gravity_p_gain'] || 0);
+    let dthr = new Float64Array(rows); for (let i = 1; i < rows; i++) dthr[i] = Math.abs(thr[i] - thr[i - 1]) * fs; dthr = filtfilt(dthr, fs, 'lp', 3, 0.707);
+    const dArm = []; for (let i = 0; i < rows; i++) if (armed[i]) dArm.push(dthr[i]); const dHi = pct(dArm, 0.8);
+    res.osc = [];
+    for (let ax = 0; ax < 3; ax++) {
+      const g = F[`gyroADC[${ax}]`], sp = F[`setpoint[${ax}]`]; if (!g) continue;
+      const bp = band(g, fs, 15, 50), env = envelope(bp, fs, 0.06);
+      let sHi = 0, nHi = 0, sLo = 0, nLo = 0;
+      for (let i = 0; i < rows; i++) if (armed[i] && Math.abs(sp[i]) < 60) { if (dthr[i] > dHi) { sHi += env[i]; nHi++; } else { sLo += env[i]; nLo++; } }
+      res.osc.push({ ax, chg: nHi ? sHi / nHi : 0, steady: nLo ? sLo / nLo : 0 });
+      let i = 0;
+      while (i < rows) {
+        if (env[i] > 12 && armed[i]) {
+          let j = i; while (j < rows && env[j] > 12) j++;
+          if (t[j - 1] - t[i] > 0.15) {
+            let zc = 0, amp = 0, th = 0, stick = false;
+            for (let q = i + 1; q < j; q++) { if ((bp[q - 1] < 0) !== (bp[q] < 0)) zc++; amp = Math.max(amp, Math.abs(bp[q])); th += thr[q]; }
+            for (let a2 = 0; a2 < 3; a2++) { const s2 = F[`setpoint[${a2}]`]; let lo = 1e9, hi = -1e9; for (let q = i; q < j; q++) { lo = Math.min(lo, s2[q]); hi = Math.max(hi, s2[q]); } if (hi - lo > 150) stick = true; }
+            const freq = zc / 2 / (t[j - 1] - t[i]);
+            res.bursts.push({ ax, t0: t[i], t1: t[j - 1], amp, freq, thr: th / (j - i), stick });
+          }
+          i = j;
+        } else i++;
+      }
+    }
+    const pure = res.bursts.filter(b => !b.stick);
+    if (pure.length) {
+      const byAx = [0, 1, 2].map(a => pure.filter(b => b.ax === a));
+      const main = byAx.map((b, a) => [b.length, a]).sort((x, y) => y[0] - x[0])[0][1];
+      const fr = median(pure.map(b => b.freq)), big = pure.reduce((a, b) => b.amp > a.amp ? b : a);
+      const o = res.osc[main], ratio = o.steady ? o.chg / o.steady : 0;
+      let body = `在沒有打桿時偵測到 ${pure.length} 次低頻震盪，主要在 ${AXN[main]} 軸（${byAx.map((b, a) => AXN[a] + ' ' + b.length).join('、')}），頻率約 ${fr.toFixed(0)} Hz，最大 ±${big.amp.toFixed(0)}°/s（${big.t0.toFixed(1)} 秒）。`;
+      if (ratio > 1.8) body += ` 油門變化時震盪強度是油門穩定時的 ${ratio.toFixed(1)} 倍，${ag > 0 ? `很可能是 anti-gravity 在油門變化時加大 P（目前 anti_gravity_p_gain = ${ag}）把迴路推過穩定邊緣。可先試 set anti_gravity_p_gain = 0 或 50 比較。` : '油門變化是主要觸發點。'}`;
+      body += fr < 60 ? ` 這個頻段（15–50 Hz）屬於控制迴路範圍，常見原因是 P 對該軸偏高、D 阻尼不足，或電池／飛控減震鬆動。降低 ${AXN[main]} P 約 10–15% 再測。` : '';
+      add(big.amp > 80 ? 'bad' : 'warn', `${AXN[main]} 軸低頻震盪（約 ${fr.toFixed(0)} Hz）`, body, big.t0);
+    } else add('ok', '沒有明顯低頻震盪', '在沒有打桿的時候，三軸都沒有超過 ±12°/s 的 15–50 Hz 晃動。');
+    // tracking + noise
+    res.noise = [];
+    for (let ax = 0; ax < 3; ax++) {
+      const gk = has(`gyroUnfilt[${ax}]`) ? `gyroUnfilt[${ax}]` : `gyroADC[${ax}]`; if (!F[gk]) continue;
+      const seg = []; const g = F[gk]; for (let i = 0; i < rows; i++) if (armed[i]) seg.push(g[i]);
+      const w = welch(seg, fs, 1024); let tot = 0, pk = 0, pf = 0;
+      for (let k = 0; k < w.P.length; k++) { const f = k * w.df; if (f > 80) { tot += w.P[k]; if (w.P[k] > pk) { pk = w.P[k]; pf = f; } } }
+      const scale = 2 / (fs * 1024 * 0.375); // hann
+      res.noise.push({ ax, key: gk, w, rms: Math.sqrt(tot * scale * w.df), peak: pf });
+    }
+    const nr = res.noise.slice(0, 2).map(n => n.rms); const nmax = Math.max(...nr, 0);
+    if (nmax > 12) add('warn', `陀螺儀高頻雜訊偏高（${nmax.toFixed(1)}°/s RMS）`, `主要雜訊峰在 ${res.noise.map(n => AXN[n.ax] + ' ' + n.peak.toFixed(0) + ' Hz').join('、')}。檢查槳是否變形、馬達軸承、機臂與螺絲是否鬆動。`);
+    else add('ok', `陀螺儀雜訊低（${nmax.toFixed(1)}°/s RMS）`, `最高峰在 ${res.noise.map(n => AXN[n.ax] + ' ' + n.peak.toFixed(0) + ' Hz').join('、')}，濾波狀況良好，機架與槳沒有明顯高頻問題。`);
+    const order = { bad: 0, warn: 1, ok: 2 }; res.findings.sort((a, b) => order[a.lvl] - order[b.lvl]);
+    return res;
+  }
+  return { analyze, AXN, DISARM };
+})();
+if (typeof module !== 'undefined') module.exports = AN;
+
+{
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+const probe = document.createElement('i'); probe.style.display = 'none'; document.body.appendChild(probe);
+const css = n => { probe.style.color = `var(${n})`; return getComputedStyle(probe).color || '#888'; };
+let logs = [], cur = 0, win = [0, 0];
+const C = ['#ff5a1f', '#2563eb', '#22a35a', '#a855f7', '#e5383b', '#0ea5e9', '#eab308', '#64748b'];
+const PANELS = [
+  { id: 'r', name: 'Roll', on: 1, ser: L => [['setpoint[0]', '指令', 'ink'], ['gyroADC[0]', '陀螺', C[0]]], unit: '°/s' },
+  { id: 'p', name: 'Pitch', on: 1, ser: L => [['setpoint[1]', '指令', 'ink'], ['gyroADC[1]', '陀螺', C[0]]], unit: '°/s' },
+  { id: 'y', name: 'Yaw', on: 0, ser: L => [['setpoint[2]', '指令', 'ink'], ['gyroADC[2]', '陀螺', C[0]]], unit: '°/s' },
+  { id: 'm', name: '馬達輸出', on: 1, ser: L => [0, 1, 2, 3, 4, 5, 6, 7].filter(k => L.F[`motor[${k}]`]).map(k => [`motor[${k}]`, 'M' + (k + 1), C[k + 1]]).concat([['rcCommand[3]', '油門', 'ink', v => (v - 1000) * 2.047]]) },
+  { id: 'e', name: '馬達轉速', on: 0, ser: L => [0, 1, 2, 3, 4, 5, 6, 7].filter(k => L.F[`eRPM[${k}]`]).map(k => [`eRPM[${k}]`, 'M' + (k + 1), C[k + 1], v => v * 100]), unit: 'eRPM' },
+  { id: 'v', name: '電壓', on: 1, ser: L => [['vbatLatest', '電壓 V', C[1], v => v / 100]], unit: 'V' },
+  { id: 'a', name: '電流', on: 0, ser: L => [['amperageLatest', '電流 A', C[6], v => v / 100]], unit: 'A' },
+  { id: 'pr', name: 'Roll PID', on: 0, ser: L => [['axisP[0]', 'P', C[1]], ['axisI[0]', 'I', C[3]], ['axisD[0]', 'D', C[2]], ['axisF[0]', 'F', C[6]]] },
+  { id: 'pp', name: 'Pitch PID', on: 0, ser: L => [['axisP[1]', 'P', C[1]], ['axisI[1]', 'I', C[3]], ['axisD[1]', 'D', C[2]], ['axisF[1]', 'F', C[6]]] },
+  { id: 'g', name: '加速度', on: 0, ser: L => [0, 1, 2].map(k => [`accSmooth[${k}]`, 'XYZ'[k], C[k + 1], v => v / Number(L.hdr.acc_1G || 2048)]), unit: 'g' },
+];
+try { const s = JSON.parse(localStorage.getItem('bbPanels') || 'null'); if (s) PANELS.forEach(p => p.on = s.includes(p.id) ? 1 : 0); } catch (e) {}
+
+async function unzip(buf) {
+  const u8 = new Uint8Array(buf), dv = new DataView(buf), out = [];
+  let e = u8.length - 22; while (e >= 0 && dv.getUint32(e, true) !== 0x06054b50) e--;
+  if (e < 0) throw new Error('zip 格式無法辨識');
+  let p = dv.getUint32(e + 16, true); const cnt = dv.getUint16(e + 10, true);
+  for (let i = 0; i < cnt; i++) {
+    const method = dv.getUint16(p + 10, true), csize = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+    const name = new TextDecoder().decode(u8.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+    if (name.endsWith('/') || name.startsWith('__MACOSX')) continue;
+    const ds = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true), data = u8.subarray(ds, ds + csize);
+    let raw;
+    if (method === 0) raw = data;
+    else if (method === 8) raw = new Uint8Array(await new Response(new Blob([data]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+    else continue;
+    out.push({ name: name.split('/').pop(), u8: raw });
+  }
+  return out;
+}
+
+async function load(files) {
+  $('busy').classList.add('on'); await new Promise(r => setTimeout(r, 30));
+  const errs = []; logs = [];
+  for (const f of files) {
+    try {
+      const buf = await f.arrayBuffer(); let items = [{ name: f.name, u8: new Uint8Array(buf) }];
+      if (new Uint8Array(buf, 0, 2)[0] === 0x50 && new Uint8Array(buf, 0, 2)[1] === 0x4b) items = await unzip(buf);
+      for (const it of items) {
+        const parts = BB.splitLogs(it.u8);
+        if (!parts.length) { errs.push(it.name + '：不是黑盒子檔'); continue; }
+        for (let k = 0; k < parts.length; k++) {
+          await new Promise(r => setTimeout(r, 0));
+          try { const L = BB.decode(parts[k]); if (L.rows < 100) continue; logs.push({ name: it.name + (parts.length > 1 ? ` #${k + 1}` : ''), L, R: AN.analyze(L) }); }
+          catch (e) { errs.push(it.name + '：' + e.message); }
+        }
+      }
+    } catch (e) { errs.push(f.name + '：' + e.message); }
+  }
+  $('busy').classList.remove('on');
+  if (!logs.length) { $('drop').querySelector('p').textContent = '沒有讀到可用的飛行紀錄。' + errs.join('；'); return; }
+  $('start').classList.add('hide'); $('out').classList.remove('hide');
+  $('logs').innerHTML = logs.map((l, i) => `<button class="chip" data-i="${i}" aria-pressed="${i === 0}">${esc(l.name)} · ${l.R.dur.toFixed(0)} 秒</button>`).join('');
+  show(0);
+}
+
+function show(i) {
+  cur = i; const { L, R } = logs[i], h = L.hdr;
+  document.querySelectorAll('#logs .chip').forEach(b => b.setAttribute('aria-pressed', b.dataset.i == i));
+  const b = R.stats.batt;
+  const sum = [
+    ['機名', h['Craft name'] || '—'], ['韌體', (h['Firmware revision'] || '').replace(/\(.*?\)/, '').trim() || '—'],
+    ['飛行時間', R.dur.toFixed(1) + ' 秒'], ['上鎖原因', R.info.disarm],
+    ['電池', b ? `${b.cells}S ${b.vs.toFixed(1)}→${b.vend.toFixed(1)} V` : '—'], ['最低電壓', b ? `${(b.vmin / b.cells).toFixed(2)} V/cell` : '—'],
+    ['峰值電流', b ? b.imax.toFixed(0) + ' A' : '—'], ['記錄頻率', R.fs.toFixed(0) + ' Hz'],
+  ];
+  $('sum').innerHTML = sum.map(([k, v]) => `<div><span>${esc(k)}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join('');
+  $('finds').innerHTML = R.findings.map((f, k) => `<div class="f ${f.lvl}"><h3>${esc(f.title)}</h3><p>${esc(f.body)}</p>${f.jump != null ? `<button class="btn sec" data-j="${f.jump}">看這段</button>` : ''}</div>`).join('');
+  const AX = AN.AXN;
+  const br = R.bursts;
+  $('bursts').innerHTML = br.length ? '<tr><th>軸</th><th>時間 (秒)</th><th>頻率</th><th>幅度</th><th>油門</th><th>類型</th></tr>' + br.map(x => `<tr class="go" data-j="${x.t0 - 0.3}" tabindex="0"><td>${AX[x.ax]}</td><td class="n">${x.t0.toFixed(1)}–${x.t1.toFixed(1)}</td><td class="n">${x.freq.toFixed(0)} Hz</td><td class="n">±${x.amp.toFixed(0)}°/s</td><td class="n">${Math.max(0, (x.thr - 1000) / 10).toFixed(0)}%</td><td style="white-space:nowrap">${x.stick ? '打桿中' : '<b>震盪</b>'}</td></tr>`).join('') : '<tr><td>沒有偵測到 15–50 Hz、超過 ±12°/s 的震盪。</td></tr>';
+  const keys = [['rollPID', 'Roll P,I,D'], ['pitchPID', 'Pitch P,I,D'], ['yawPID', 'Yaw P,I,D'], ['d_max', 'D max'], ['ff_weight', 'Feedforward'], ['anti_gravity_gain', 'Anti-gravity'], ['anti_gravity_p_gain', 'Anti-gravity P'], ['tpa_rate', 'TPA rate'], ['tpa_breakpoint', 'TPA breakpoint'], ['tpa_mode', 'TPA mode'], ['simplified_master_multiplier', '簡易調參 master'], ['simplified_d_gain', '簡易調參 D'], ['simplified_pi_gain', '簡易調參 PI'], ['gyro_lpf1_dyn_hz', 'Gyro LPF1 dyn'], ['gyro_lpf2_static_hz', 'Gyro LPF2'], ['gyro_notch_hz', 'Gyro notch'], ['dterm_lpf1_dyn_hz', 'D-term LPF1 dyn'], ['dyn_notch_count', '動態 notch 數量'], ['dyn_notch_min_hz', '動態 notch 最低'], ['dyn_notch_max_hz', '動態 notch 最高'], ['rpm_filter_harmonics', 'RPM 濾波諧波'], ['dshot_bidir', '雙向 DShot'], ['motor_kv', '馬達 KV'], ['motor_idle', '怠速'], ['rc_rates', 'RC rates'], ['rates', 'Super rates'], ['rc_expo', 'Expo'], ['Board information', '飛控']];
+  $('cfg').innerHTML = '<tr><th>設定</th><th>值</th><th>CLI 名稱</th></tr>' + keys.filter(([k]) => h[k] != null).map(([k, n]) => `<tr><td>${esc(n)}</td><td class="n">${esc(h[k])}</td><td>${esc(k)}</td></tr>`).join('');
+  $('panels').innerHTML = PANELS.map(p => `<button class="chip" data-p="${p.id}" aria-pressed="${!!p.on}">${esc(p.name)}</button>`).join('');
+  buildStrips(); setWin(0, R.dur); drawSpec();
+}
+
+function buildStrips() {
+  const L = logs[cur].L;
+  $('strips').innerHTML = PANELS.filter(p => p.on).map(p => {
+    const s = p.ser(L).filter(x => L.F[x[0]]);
+    return s.length ? `<div class="strip" data-s="${p.id}"><div class="lab"><b>${esc(p.name)}</b>${s.map(x => `<span><i style="background:${x[2] === 'ink' ? 'var(--ink)' : x[2]}"></i>${esc(x[1])}</span>`).join('')}</div><canvas></canvas></div>` : '';
+  }).join('');
+  drawAll();
+}
+
+function idx(t, x) { let lo = 0, hi = t.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (t[m] < x) lo = m + 1; else hi = m; } return lo; }
+
+function setWin(a, b) {
+  const D = logs[cur].R.dur, w = Math.min(b - a, D); a = Math.max(0, Math.min(a, D - w)); win = [a, a + w];
+  $('pos').value = D > w ? Math.round(a / (D - w) * 1000) : 0;
+  $('tw').textContent = `${win[0].toFixed(2)} – ${win[1].toFixed(2)} 秒`;
+  drawAll();
+}
+
+function prepCanvas(cv) { const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1; cv.width = Math.max(1, r.width * d); cv.height = Math.max(1, r.height * d); const g = cv.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); return [g, r.width, r.height]; }
+
+function drawAll() {
+  if (!logs.length) return;
+  const { L, R } = logs[cur], t = L.t, i0 = idx(t, win[0]), i1 = Math.min(t.length - 1, idx(t, win[1]));
+  const ink = css('--ink'), grid = css('--grid'), mute = css('--mute');
+  document.querySelectorAll('#strips .strip').forEach(div => {
+    const p = PANELS.find(q => q.id === div.dataset.s), ser = p.ser(L).filter(x => L.F[x[0]]);
+    const [g, W, H] = prepCanvas(div.querySelector('canvas')), padL = 44, pw = W - padL - 4, ph = H - 18;
+    let mn = 1e9, mx = -1e9;
+    for (const [k, , , fn] of ser) { const a = L.F[k]; for (let i = i0; i <= i1; i++) { const v = fn ? fn(a[i]) : a[i]; if (v < mn) mn = v; if (v > mx) mx = v; } }
+    if (mn === mx) { mn -= 1; mx += 1; } const pad = (mx - mn) * 0.06; mn -= pad; mx += pad;
+    const Y = v => 2 + (mx - v) / (mx - mn) * (ph - 4);
+    g.font = '11px system-ui'; g.fillStyle = mute; g.strokeStyle = grid; g.lineWidth = 1;
+    const step = nice((mx - mn) / 4);
+    for (let v = Math.ceil(mn / step) * step; v <= mx; v += step) { const y = Y(v); g.beginPath(); g.moveTo(padL, y); g.lineTo(W - 4, y); g.stroke(); g.fillText(fmt(v), 2, y + 4); }
+    if (mn < 0 && mx > 0) { g.strokeStyle = mute; g.beginPath(); g.moveTo(padL, Y(0)); g.lineTo(W - 4, Y(0)); g.stroke(); }
+    const ts = nice((win[1] - win[0]) / 5);
+    const dec = ts >= 1 ? 0 : ts >= 0.1 ? 1 : 2; for (let x = Math.ceil(win[0] / ts) * ts; x <= win[1]; x += ts) { const px = padL + (x - win[0]) / (win[1] - win[0]) * pw; if (px < W - 30) g.fillText(x.toFixed(dec) + 's', px - 8, H - 3); }
+    // burst shading
+    g.fillStyle = 'rgba(229,56,59,.12)';
+    for (const b of R.bursts) if (!b.stick && b.t1 > win[0] && b.t0 < win[1]) { const x0 = padL + Math.max(0, b.t0 - win[0]) / (win[1] - win[0]) * pw, x1 = padL + Math.min(win[1] - win[0], b.t1 - win[0]) / (win[1] - win[0]) * pw; g.fillRect(x0, 0, Math.max(2, x1 - x0), ph); }
+    for (const [k, , col, fn] of ser) {
+      const a = L.F[k]; g.strokeStyle = col === 'ink' ? ink : col; g.lineWidth = 1.2; g.beginPath();
+      const n = i1 - i0 + 1;
+      if (n <= pw * 2) { for (let i = i0; i <= i1; i++) { const x = padL + (t[i] - win[0]) / (win[1] - win[0]) * pw, y = Y(fn ? fn(a[i]) : a[i]); i === i0 ? g.moveTo(x, y) : g.lineTo(x, y); } }
+      else { const cols = Math.floor(pw); for (let c = 0; c < cols; c++) { const s = i0 + Math.floor(c * n / cols), e = i0 + Math.floor((c + 1) * n / cols); let lo = 1e9, hi = -1e9; for (let i = s; i < e; i++) { const v = fn ? fn(a[i]) : a[i]; if (v < lo) lo = v; if (v > hi) hi = v; } g.moveTo(padL + c + .5, Y(hi)); g.lineTo(padL + c + .5, Y(lo) + .5); } }
+      g.stroke();
+    }
+  });
+}
+const nice = r => { const e = Math.pow(10, Math.floor(Math.log10(r || 1))), f = r / e; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * e; };
+const fmt = v => Math.abs(v) >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.abs(v) < 10 && v % 1 ? v.toFixed(1) : Math.round(v).toString();
+
+function drawSpec() {
+  const R = logs[cur].R, cv = $('spec'), [g, W, H] = prepCanvas(cv), padL = 8, pw = W - 12, ph = H - 18, fmax = Math.min(1000, R.fs / 2);
+  const ink = css('--mute'), grid = css('--grid'); g.font = '11px system-ui';
+  let mx = 0; const curves = R.noise.map(n => { const d = Array.from(n.w.P, v => 10 * Math.log10(v + 1e-9)); return d; });
+  curves.forEach(d => d.forEach((v, k) => { if (k * R.noise[0].w.df > 20 && v > mx) mx = v; })); const mn = mx - 60;
+  for (let f = 0; f <= fmax; f += 100) { const x = padL + f / fmax * pw; g.strokeStyle = grid; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.fillStyle = ink; g.fillText(f + (f === 0 ? '' : ''), x - 6, H - 3); }
+  curves.forEach((d, a) => { g.strokeStyle = C[a]; g.lineWidth = 1.4; g.beginPath(); d.forEach((v, k) => { const f = k * R.noise[a].w.df; if (f > fmax) return; const x = padL + f / fmax * pw, y = Math.max(0, Math.min(ph, (mx - v) / (mx - mn) * ph)); k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); });
+  $('speclab').innerHTML = '<b>Hz（相對強度 dB）</b>' + R.noise.map((n, a) => `<span><i style="background:${C[a]}"></i>${AN.AXN[n.ax]} 峰 ${n.peak.toFixed(0)} Hz</span>`).join('');
+}
+
+// events
+$('file').addEventListener('change', e => { if (e.target.files.length) load([...e.target.files]); e.target.value = ''; });
+const drop = $('drop');
+['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
+['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
+drop.addEventListener('drop', e => { if (e.dataTransfer.files.length) load([...e.dataTransfer.files]); });
+$('logs').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) show(+b.dataset.i); });
+$('panels').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = PANELS.find(q => q.id === b.dataset.p); p.on = p.on ? 0 : 1; b.setAttribute('aria-pressed', !!p.on); try { localStorage.setItem('bbPanels', JSON.stringify(PANELS.filter(q => q.on).map(q => q.id))); } catch (er) {} buildStrips(); });
+document.querySelectorAll('[data-z]').forEach(b => b.addEventListener('click', () => { const z = +b.dataset.z, D = logs[cur].R.dur; if (!z) setWin(0, D); else { const c = (win[0] + win[1]) / 2; setWin(c - z / 2, c + z / 2); } }));
+$('pos').addEventListener('input', e => { const D = logs[cur].R.dur, w = win[1] - win[0]; const a = (D - w) * e.target.value / 1000; setWin(a, a + w); });
+document.addEventListener('click', e => { const b = e.target.closest('[data-j]'); if (!b) return; const t0 = +b.dataset.j; setWin(t0 - 0.2, t0 + 1.3); document.querySelector('#strips').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); });
+let drag = null;
+$('strips').addEventListener('pointerdown', e => { if (e.target.tagName !== 'CANVAS') return; drag = { x: e.clientX, w: win.slice(), W: e.target.getBoundingClientRect().width - 48 }; });
+addEventListener('pointermove', e => { if (!drag) return; const dt = (drag.x - e.clientX) / drag.W * (drag.w[1] - drag.w[0]); if (Math.abs(drag.x - e.clientX) > 3) setWin(drag.w[0] + dt, drag.w[1] + dt); });
+addEventListener('pointerup', () => drag = null); addEventListener('pointercancel', () => drag = null);
+const ro = new ResizeObserver(() => { if (logs.length) { drawAll(); drawSpec(); } }); ro.observe(document.body);
+}
+</script>
+</body>
+</html>
