@@ -74,6 +74,13 @@ table.rep .nt{font-size:12px;opacity:.65;padding-bottom:7px;border-bottom:1px so
 #mark i{position:absolute;left:-30px;top:-30px;width:60px;height:60px;border:2px solid rgba(255,213,79,.85);border-radius:50%}
 #mark i::after{content:"";position:absolute;left:50px;top:21px;border-left:16px solid #ffd54f;border-top:9px solid transparent;border-bottom:9px solid transparent;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
 #mark b{position:absolute;left:36px;top:-44px;white-space:nowrap;font-size:12px;color:#ffe082;text-shadow:0 1px 3px #000}
+.bpad{position:fixed;bottom:max(14px,4vh);display:none;grid-template-areas:". u ." "l c r" ". d .";grid-template-columns:repeat(3,min(74px,16vh));grid-template-rows:repeat(3,min(74px,16vh));gap:6px;z-index:1}
+#btnL{left:max(22px,4vw)}#btnR{right:max(22px,4vw)}
+.bpad button{border-radius:14px;border:2px solid rgba(255,255,255,.35);background:rgba(10,16,24,.45);color:#fff;font-size:15px;font-weight:800;line-height:1.05;touch-action:none;-webkit-user-select:none;user-select:none}
+.bpad button small{font-size:11px;font-weight:600;opacity:.8}
+.bpad button.down{background:rgba(255,122,26,.75);border-color:#ffb27a}
+.bpad button.hl{border-color:#ffd54f;box-shadow:0 0 16px rgba(255,213,79,.7);animation:pulse 1s infinite}
+.bpad .thrv{display:flex;align-items:center;justify-content:center;font-weight:800;font-size:14px;color:#ffe082;text-shadow:0 1px 3px #000}
 #warn{position:fixed;top:64px;left:50%;transform:translateX(-50%);font-weight:800;font-size:20px;color:#ff5252;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .2s;pointer-events:none}
 #toast{position:fixed;top:46%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0;transition:opacity .3s}
 #toast h2{margin:0;font-size:34px;text-shadow:0 3px 12px rgba(0,0,0,.6)}
@@ -170,6 +177,8 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
 <canvas id="mini"></canvas>
 <div id="mark"><i></i><b></b></div>
 <div id="pip"><span></span></div>
+<div class="bpad" id="btnL"><button data-dir="up" style="grid-area:u"></button><button data-dir="left" style="grid-area:l"></button><div class="thrv" style="grid-area:c"></div><button data-dir="right" style="grid-area:r"></button><button data-dir="down" style="grid-area:d"></button></div>
+<div class="bpad" id="btnR"><button data-dir="up" style="grid-area:u"></button><button data-dir="left" style="grid-area:l"></button><div class="thrv" style="grid-area:c"></div><button data-dir="right" style="grid-area:r"></button><button data-dir="down" style="grid-area:d"></button></div>
 <div class="stick" id="stickL"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
 <div class="stick" id="stickR"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
 
@@ -198,6 +207,7 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
     <div class="row" id="pipSel"></div></div>
 
     <h3>操控</h3>
+    <div class="row" id="ctrlSel"></div>
     <div class="row" id="modeSel">
       <button class="opt" data-mode="2"><b>Mode 2（美國手）</b><span>左：油門／方向　右：升降／副翼</span></button>
       <button class="opt" data-mode="1"><b>Mode 1（日本手）</b><span>左：升降／方向　右：油門／副翼</span></button>

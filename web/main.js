@@ -12,7 +12,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
-const DEF = { assistLvl: 70, assist: true, as: { route: true, stall: true, coord: true, roll: true, reverse: false, marker: true }, site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
+const DEF = { ctrl: 'stick', assistLvl: 70, assist: true, as: { route: true, stall: true, coord: true, roll: true, reverse: false, marker: true }, site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
   pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false], mode: [-1, false] }, fmode: 'stab' };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
@@ -224,6 +224,52 @@ const keys = {};
 window.addEventListener('keydown', e => { keys[e.code] = true; audioStart(); });
 window.addEventListener('keyup', e => { keys[e.code] = false; });
 
+// ---------- 按鈕式操作 ----------
+// 每側四顆按鈕（上下左右），按住時對應的虛擬搖桿值平滑增加、放開回中；油門按住時逐漸增減、放開停在原處
+const BTN = { L: { up: 0, down: 0, left: 0, right: 0 }, R: { up: 0, down: 0, left: 0, right: 0 } };
+let btnT = performance.now();
+function btnLabel(side, dir) {
+  const axis = dir === 'up' || dir === 'down' ? 'y' : 'x';
+  const fn = axis === 'y' ? (stickOf('thr') === side ? 'thr' : 'ele') : (stickOf('rud') === side ? 'rud' : 'ail');
+  return {
+    thr: { up: '▲<br><small>油門＋</small>', down: '▼<br><small>油門－</small>' }, ele: { up: '▲ 推<br><small>低頭</small>', down: '▼ 拉<br><small>抬頭</small>' },
+    rud: { left: '◀<br><small>方向</small>', right: '▶<br><small>方向</small>' }, ail: { left: '◀<br><small>副翼</small>', right: '▶<br><small>副翼</small>' },
+  }[fn][dir];
+}
+function buildButtons() {
+  for (const side of ['L', 'R']) {
+    const pad = $('btn' + side);
+    pad.querySelectorAll('button').forEach(b => {
+      const dir = b.dataset.dir;
+      b.innerHTML = btnLabel(side, dir);
+      const on = e => { e.preventDefault(); BTN[side][dir] = 1; b.classList.add('down'); audioStart(); try { b.setPointerCapture(e.pointerId); } catch (_) {} };
+      const off = e => { BTN[side][dir] = 0; b.classList.remove('down'); };
+      b.onpointerdown = on; b.onpointerup = off; b.onpointercancel = off; b.onlostpointercapture = off;
+    });
+  }
+  applyCtrlMode();
+}
+function applyCtrlMode() {
+  const btn = cfg.ctrl === 'buttons';
+  for (const side of ['L', 'R']) { $('stick' + side).style.display = btn ? 'none' : ''; $('btn' + side).style.display = btn ? 'grid' : 'none'; }
+}
+function updateButtons() {
+  const now = performance.now(), dt = Math.min(0.12, (now - btnT) / 1000); btnT = now;
+  for (const side of ['L', 'R']) {
+    const s = sticks[side], b = BTN[side];
+    const ease = (v, t, k) => v + (t - v) * Math.min(1, dt * k);
+    // 左右：按住約 0.25 秒到滿舵，放開回中
+    s.x = ease(s.x, b.right - b.left, b.right || b.left ? 6 : 12);
+    if (stickOf('thr') === side) {
+      s.y = clamp(s.y + (b.up - b.down) * dt * 1.0, -1, 1); // 油門每秒約 50%
+      const tv = $('btn' + side).querySelector('.thrv'); tv.style.display = ''; tv.textContent = Math.round((s.y + 1) * 50) + '%';
+    } else {
+      s.y = ease(s.y, b.up - b.down, b.up || b.down ? 6 : 12);
+      $('btn' + side).querySelector('.thrv').style.display = 'none';
+    }
+  }
+}
+
 // 遙控器軸：Android 原生回傳 [X,Y,Z,RX,RY,RZ,THROTTLE,RUDDER,GAS,BRAKE,HAT_X,HAT_Y]
 const AXN = ['X', 'Y', 'Z', 'RX', 'RY', 'RZ', 'THR', 'RUD', 'GAS', 'BRK', 'HX', 'HY'];
 let padAxes = null, padSeen = 0, padName = '';
@@ -242,6 +288,7 @@ function pollWebPad() {
 function expo(v) { const e = cfg.expo / 100; return (1 - e) * v + e * v * v * v; }
 
 function readInput() {
+  if (cfg.ctrl === 'buttons') updateButtons();
   const L = sticks.L, R = sticks.R;
   let thr, ail, ele, rud;
   if (cfg.mode === 2) { thr = (L.y + 1) / 2; rud = L.x; ele = -R.y; ail = R.x; }
@@ -708,7 +755,11 @@ function startFree() {
 // 操作 → 搖桿位置（依 Mode 1／2）
 const FN = { thr: '油門', ele: '升降舵', ail: '副翼', rud: '方向舵' };
 function stickOf(fn) { return cfg.mode === 2 ? ({ thr: 'L', rud: 'L', ele: 'R', ail: 'R' })[fn] : ({ ele: 'L', rud: 'L', thr: 'R', ail: 'R' })[fn]; }
-function where(fn) { return (stickOf(fn) === 'L' ? '左搖桿' : '右搖桿') + '的「' + (fn === 'thr' || fn === 'ele' ? '上下' : '左右') + '」方向'; }
+function where(fn) {
+  const v = fn === 'thr' || fn === 'ele';
+  if (cfg.ctrl === 'buttons') return (stickOf(fn) === 'L' ? '左邊' : '右邊') + '的「' + (v ? '上／下' : '左／右') + '」按鈕';
+  return (stickOf(fn) === 'L' ? '左搖桿' : '右搖桿') + '的「' + (v ? '上下' : '左右') + '」方向';
+}
 const fill = t => t.replace(/\{(thr|ele|ail|rud)\}/g, (_, f) => '【' + where(f) + '】');
 function setHL(list) {
   for (const k of ['L', 'R']) {
@@ -716,7 +767,9 @@ function setHL(list) {
     base.classList.remove('hl');
     base.querySelectorAll('.arr').forEach(a => a.remove());
   }
+  document.querySelectorAll('.bpad button').forEach(b => b.classList.remove('hl'));
   if (!list) return;
+  if (cfg.ctrl === 'buttons') { for (const [fn, d] of list) { const b = $('btn' + stickOf(fn)).querySelector(`[data-dir="${d}"]`); if (b) b.classList.add('hl'); } return; }
   const DIR = { up: [0, -1, 0], down: [0, 1, 180], left: [-1, 0, 270], right: [1, 0, 90] };
   for (const [fn, d] of list) {
     const base = sticks[stickOf(fn)].el.querySelector('.base');
@@ -993,6 +1046,7 @@ function buildMenu() {
     asEl.appendChild(b);
   }
   opts('fmodeSel', [['stab', '水平自穩模式', '放開副翼／升降會自動改平，坡度限 50°、俯仰限 30°（類似教練機的自穩）'], ['manual', '全手動模式', '搖桿直接控制舵面角速率，不會自動改平，考照建議用這個練']], 'fmode', () => {});
+  opts('ctrlSel', [['stick', '模擬搖桿', '左右兩支虛擬搖桿，最接近真實遙控器'], ['buttons', '按鈕式', '上下左右按鈕，按住加舵、放開回中，油門按住增減；適合不習慣搖桿的人']], 'ctrl', () => { buildButtons(); setThrottleStick(input.thr); });
   opts('siteSel', [['zhutian', '竹田飛行場', '依空拍圖概略重建：水泥跑道、直升機坪、停車場、河道'], ['std', '標準練習場', '柏油跑道、機棚、池塘']], 'site', () => { toast('切換場地中…'); setTimeout(() => location.reload(), 300); });
   opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
   opts('pipSel', [[1, '第三人稱', '水平朝操作者前方、角度固定，飛機占滿小窗'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
@@ -1008,7 +1062,7 @@ function buildMenu() {
   }
   for (const b of $('modeSel').children) {
     b.classList.toggle('sel', +b.dataset.mode === cfg.mode);
-    b.onclick = () => { cfg.mode = +b.dataset.mode; save(); buildMenu(); layoutSticks(); setThrottleStick(input.thr); };
+    b.onclick = () => { cfg.mode = +b.dataset.mode; save(); buildMenu(); layoutSticks(); setThrottleStick(input.thr); buildButtons(); };
   }
   const sl = (id, key, fmt, cb) => {
     const el = $(id), out = el.nextElementSibling;
@@ -1103,6 +1157,7 @@ setCam(cfg.cam);
 
 loadPlane(cfg.plane);
 buildMenu();
+buildButtons();
 goHome();
 resize();
 updateCamera(0.016);

@@ -4,7 +4,8 @@
     <uses-permission android:name="android.permission.VIBRATE" />
     <application
         android:label="RC 飛行模擬"
-        android:icon="@drawable/ic_launcher"
+        android:icon="@mipmap/ic_launcher"
+        android:roundIcon="@mipmap/ic_launcher_round"
         android:theme="@android:style/Theme.DeviceDefault.NoActionBar.Fullscreen"
         android:hardwareAccelerated="true">
         <activity android:name=".MainActivity" android:exported="true"
