@@ -345,8 +345,18 @@ function fpvCam(cam) {
   cam.quaternion.copy(fm.q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.12));
   cam.fov = 95;
 }
+// 鎖定在飛機正後方、固定距離、跟著機身一起轉（飛機永遠占滿畫面，看地平線判斷姿態）
+function lockedCam(cam) {
+  cam.fov = 40;
+  const half = Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect);
+  const d = (fm.spec.span / 2) / Math.tan(half) * 1.08;
+  const up = d * 0.16;
+  cam.position.copy(new THREE.Vector3(0, up, d).applyQuaternion(fm.q).add(fm.pos));
+  cam.quaternion.copy(fm.q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.atan2(up - 0.03, d)));
+}
 function runCam(mode, cam, st, dt) {
   if (fm.crashed && mode !== 1) { cam.up.set(0, 1, 0); cam.lookAt(fm.pos); }
+  else if (mode === 3) lockedCam(cam);
   else if (mode === 0) chaseCam(cam, st, dt);
   else if (mode === 1) groundCam(cam, st, dt);
   else fpvCam(cam);
@@ -355,7 +365,7 @@ function runCam(mode, cam, st, dt) {
 }
 function updateCamera(dt) {
   runCam(cfg.cam, camera, camState, dt);
-  if (pipActive()) runCam(cfg.pip === 1 ? 0 : 2, pipCam, pipState, dt);
+  if (pipActive()) runCam(cfg.pip === 1 ? 3 : 2, pipCam, pipState, dt);
 }
 const pipActive = () => cfg.cam === 1 && cfg.pip > 0;
 function pipRect() {
@@ -513,7 +523,7 @@ function buildMenu() {
     });
   };
   opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
-  opts('pipSel', [[1, '第三人稱', '小窗顯示飛機姿態'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
+  opts('pipSel', [[1, '第三人稱', '正後方固定距離，飛機占滿小窗'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
   $('pipRow').style.opacity = cfg.cam === 1 ? 1 : 0.45;
   for (const b of $('modeSel').children) {
     b.classList.toggle('sel', +b.dataset.mode === cfg.mode);
