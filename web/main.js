@@ -11,7 +11,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
-const DEF = { paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
+const DEF = { site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
   pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false], mode: [-1, false] }, fmode: 'stab' };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
@@ -28,7 +28,7 @@ renderer.toneMappingExposure = 1.05;
 if (cfg.qual > 0) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 9000);
-const world = buildWorld(scene, renderer, cfg.qual);
+const world = buildWorld(scene, renderer, cfg.qual, cfg.site);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -836,6 +836,7 @@ function buildMenu() {
     });
   };
   opts('fmodeSel', [['stab', '水平自穩模式', '放開副翼／升降會自動改平，坡度限 50°、俯仰限 30°（類似教練機的自穩）'], ['manual', '全手動模式', '搖桿直接控制舵面角速率，不會自動改平，考照建議用這個練']], 'fmode', () => {});
+  opts('siteSel', [['zhutian', '竹田飛行場', '依空拍圖概略重建：水泥跑道、直升機坪、停車場、河道'], ['std', '標準練習場', '柏油跑道、機棚、池塘']], 'site', () => { toast('切換場地中…'); setTimeout(() => location.reload(), 300); });
   opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
   opts('pipSel', [[1, '第三人稱', '水平朝操作者前方、角度固定，飛機占滿小窗'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
   $('pipRow').style.opacity = cfg.cam === 1 ? 1 : 0.45;
@@ -938,4 +939,4 @@ goHome();
 resize();
 updateCamera(0.016);
 requestAnimationFrame(frame);
-window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg, game, examiner };
+window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg, game, examiner, camera, scene, renderer, pause: () => pause(), get mdl() { return mdl; } };

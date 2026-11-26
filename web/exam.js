@@ -4,7 +4,7 @@
 // 場地（I 級）：中線＝飛手正前方；起飛線距中線 30 m；主輪不得超出 4 m 寬範圍線
 // 飛手站在跑道東側面向西，頂風方向為北（-Z），航線為左航線，位於飛手前方（西側）
 
-import { PILOT } from './world.js';
+import { PILOT, RUNWAY } from './world.js';
 
 const D = 180 / Math.PI;
 export const BAND = [20, 40];                          // 航高保持範圍 (m)（基準未訂數值，模擬採 30±10 m）
@@ -12,7 +12,7 @@ export const LINES = { center: PILOT.z, takeoff: 30, lane: 2 }; // 中線 z、�
 export const PAT = { xFar: -100, zN: -160, zS: 150 };  // 五邊航線
 export const C8 = { x: PILOT.x - 50, z: PILOT.z, r: 40 }; // 水平 8 字：交叉點 P5 在飛手正前方約 50 m
 const zc = LINES.center, zT = LINES.takeoff;
-const ON_RUNWAY = p => Math.abs(p.x) < 6.5 && Math.abs(p.z) < 72;
+const ON_RUNWAY = p => Math.abs(p.x) < RUNWAY.width / 2 + 0.5 && Math.abs(p.z) < 72;
 const d8 = p => Math.hypot(p.x - C8.x, p.z - C8.z);
 const wrapDeg = a => { while (a > 180) a -= 360; while (a < -180) a += 360; return a; };
 
