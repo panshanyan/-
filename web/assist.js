@@ -21,12 +21,13 @@ export function routeAssistCore(fm, input, pts, len, opt, RA) {
   const turn = Math.abs(Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0)));
   RA.corner = turn > 0.25 || !!opt.eight;
   const lvl = input.assistLvl ?? 1; // 輔助強度 0~1
-  const w = (RA.corner ? 1 : 0.35) * lvl;
+  // 強度：轉彎時 60% 以上即可完整帶過彎，較低強度則只幫一部分、需要自己補
+  const w = RA.corner ? Math.min(1, lvl * 1.6) : 0.35 * lvl;
   // 期望航向 → 期望坡度（左轉為正，與 euler.z 同號）
   const want = Math.atan2(-(tp[0] - fm.pos.x), -(tp[1] - fm.pos.z));
   const err = Math.atan2(Math.sin(want - e.y), Math.cos(want - e.y));
   const maxB = (opt.eight ? 45 : 35) * Math.PI / 180;
-  const dB = clamp(err * 1.4, -maxB, maxB);
+  const dB = clamp(err * 1.4 * (0.5 + 0.5 * lvl), -maxB, maxB);
   const rate = input.rate || 1;
   const ailA = input.stab ? -dB / (50 * Math.PI / 180) * rate : clamp((e.z - dB) * 2.2, -1, 1) * rate;
   if (RA.corner && RA.altHold == null) RA.altHold = fm.pos.y;
