@@ -1,9 +1,10 @@
 import * as THREE from 'three';
 import { FlightModel, PLANES } from './physics.js';
 import { terrainHeight } from './terrain.js';
-import { buildWorld, PILOT } from './world.js';
+import { buildWorld, PILOT, SUN_DIR } from './world.js';
 import { buildPlane } from './model.js';
 import { LESSONS, Tutor } from './tutorial.js';
+import { ITEMS, Examiner, PAT, C8, BAND, PRE_CHECK, POST_CHECK } from './exam.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -21,9 +22,12 @@ const canvas = $('gl');
 const renderer = new THREE.WebGLRenderer({ canvas, antialias: cfg.qual > 0, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio, cfg.qual > 0 ? 2 : 1.25));
 renderer.outputColorSpace = THREE.SRGBColorSpace;
+renderer.toneMapping = THREE.ACESFilmicToneMapping;
+renderer.toneMappingExposure = 1.05;
+if (cfg.qual > 0) { renderer.shadowMap.enabled = true; renderer.shadowMap.type = THREE.PCFSoftShadowMap; }
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(60, 1, 0.1, 9000);
-const world = buildWorld(scene, cfg.qual);
+const world = buildWorld(scene, renderer, cfg.qual);
 
 function resize() {
   const w = window.innerWidth, h = window.innerHeight;
@@ -61,7 +65,7 @@ function applyWind() {
 function resetPlane(air, o = {}) {
   clearDebris();
   const heading = o.heading || 0;
-  fm.reset(0, 50, heading);
+  fm.reset(o.x ?? 0, o.z ?? 50, heading);
   if (air) {
     fm.pos.set(o.x ?? 0, o.y ?? 45, o.z ?? 60);
     fm.vel.set(0, 0, -1).applyQuaternion(fm.q).multiplyScalar(fm.spec.vref * 1.2);
@@ -462,18 +466,21 @@ function frame(now) {
     fm.step(STEP, input);
     if (!fm.crashed && !fm.onGround && treeHit()) fm.crash('撞到樹了');
     if (fm.pos.lengthSq() > 2900 * 2900 && !fm.crashed) fm.crash('飛出邊界');
-    if (game.mode === 'tut' && game.lesson.groundOnly && !fm.crashed) {
+    if (((game.mode === 'tut' && game.lesson.groundOnly) || (game.mode === 'exam' && examiner.groundOnly)) && !fm.crashed) {
       const gy = terrainHeight(fm.pos.x, fm.pos.z) + fm.gearH;
       if (fm.pos.y > gy) { fm.pos.y = gy; if (fm.vel.y > 0) fm.vel.y = 0; }
     }
   }
   if (game.mode === 'tut' && fm.event) tutor.event(fm, fm.event);
   if (game.mode === 'tut') tutor.update(dt, fm, input);
+  if (game.mode === 'exam' && fm.event) examiner.event(fm, fm.event);
+  if (game.mode === 'exam') { examiner.update(dt, fm, input); drawMini(dt); }
   if (fm.event) {
     const ev = fm.event; fm.event = null;
     if (ev.type === 'crash') {
       explode(); if (navigator.vibrate) navigator.vibrate(120);
       if (game.mode === 'tut') { toast('💥 墜機', ev.text, 2); crashTimer = 1.8; }
+      else if (game.mode === 'exam') { toast('💥 墜機', ev.text, 2); crashTimer = 0; }
       else { toast('💥 墜機', ev.text + '　·　點「重置」再飛一次', 3.5); crashTimer = 4; }
     }
     else toast(ev.text === '完美降落！' ? '🛬 ' + ev.text : ev.text, '接地速度 ' + (ev.score * 3.6).toFixed(0) + ' km/h', 2.5);
@@ -488,7 +495,10 @@ function frame(now) {
   // 地面陰影
   const gh = terrainHeight(fm.pos.x, fm.pos.z);
   const hAbove = fm.pos.y - gh;
-  blob.visible = !fm.crashed && hAbove < 60;
+  blob.visible = !fm.crashed && hAbove < 60 && cfg.qual === 0;
+  // 陰影相機跟著飛機
+  world.sun.target.position.copy(fm.pos);
+  world.sun.position.copy(fm.pos).addScaledVector(SUN_DIR, 300);
   blob.position.set(fm.pos.x, gh + 0.05, fm.pos.z);
   const sc = fm.spec.span * 0.45 * (1 + hAbove * 0.02);
   blob.scale.set(sc, sc * 0.7, 1);
@@ -521,10 +531,11 @@ function resume() { paused = false; audioStart(); last = performance.now(); accu
 function show(id) {
   for (const k of ['home', 'tutList']) $(k).classList.toggle('show', k === id);
   if (id === 'tutList') buildLessons();
+  if (id === 'home') $('examBadge').textContent = cfg.examPassed ? '✓ 已合格' : (cfg.examBest ? `最佳 ${cfg.examBest} 分` : '定翼術科');
   if (id === 'home') $('tutProg').textContent = LESSONS.filter(l => cfg.done[l.id]).length + '/' + LESSONS.length;
 }
 function goHome() {
-  pause(); game.mode = null; tutor.stop();
+  pause(); game.mode = null; tutor.stop(); examiner.stop(); $('mini').style.display = 'none';
   $('menu').classList.remove('show'); $('dlg').classList.remove('show'); $('tut').classList.remove('show');
   setHL(null);
   show('home');
@@ -532,7 +543,7 @@ function goHome() {
 function startFree() {
   game.mode = 'free'; game.lesson = null;
   loadPlane(cfg.plane);
-  $('bAir').style.display = ''; $('bReset').textContent = '重置';
+  $('bAir').style.display = ''; $('bReset').style.display = ''; $('bReset').textContent = '重置';
   show(null); resume();
 }
 
@@ -560,8 +571,8 @@ function setHL(list) {
   }
 }
 
-function dlg(title, text, acts) {
-  $('dT').textContent = title; $('dP').textContent = text;
+function dlg(title, text, acts, html) {
+  $('dT').textContent = title; if (html) $('dP').innerHTML = html; else $('dP').textContent = text;
   const A = $('dA'); A.innerHTML = '';
   for (const [t, fn, pri] of acts) {
     const b = document.createElement('button'); b.textContent = t; if (pri) b.className = 'pri';
@@ -632,7 +643,114 @@ const tutor = new Tutor({
 
 $('mFree').onclick = startFree;
 $('mTut').onclick = () => show('tutList');
-$('mExam').onclick = () => {}; // 考照模式：尚未開放
+$('mExam').onclick = openExam;
+
+// ---------- 考照模式 ----------
+function openExam() {
+  const list = ITEMS.map(it => `<b>${it.code}. ${it.name}</b><br><span style="opacity:.75;font-size:13px">${it.brief}</span>`).join('<br>');
+  dlg('📋 考照模式：無人飛機術科（基本級）', '', [['返回', () => show('home')], ['開始考試', startExam, true]],
+    `<span style="opacity:.75;font-size:13px">依民航局「無人飛機專業操作證術科測驗基準」程序模擬。A 飛行前檢查 → B~F 術科 → G 飛行後檢查。</span><br>${list}<br><span style="opacity:.75;font-size:13px">重大違失（墜機、超越應考人後方、通過頭頂）立即不合格。各項 70 分以上為通過；航高 ${BAND[0]}–${BAND[1]} m 等數值為模擬設定。建議使用地面目視視角，右上角小地圖顯示航線。</span>`);
+}
+function checklist(title, items, done) {
+  const st = items.map(() => false);
+  const html = `<div class="chk">${items.map((t, i) => `<button data-i="${i}">☐ ${t}</button>`).join('')}</div>`;
+  dlg(title, '', [['回主畫面', goHome], ['完成檢查', () => {}, true]], html);
+  const btns = [...document.querySelectorAll('#dP .chk button')], go = $('dA').lastChild;
+  go.disabled = true; go.style.opacity = 0.4;
+  go.onclick = () => { if (st.every(Boolean)) { $('dlg').classList.remove('show'); done(); } };
+  btns.forEach(b => b.onclick = () => {
+    const i = +b.dataset.i; st[i] = !st[i];
+    b.textContent = (st[i] ? '☑ ' : '☐ ') + items[i]; b.classList.toggle('on', st[i]);
+    const all = st.every(Boolean); go.disabled = !all; go.style.opacity = all ? 1 : 0.4;
+  });
+}
+function startExam() {
+  game.mode = 'exam'; game.lesson = null;
+  if (!fm || fm.spec !== PLANES.trainer) loadPlane('trainer');
+  resetPlane(false, { z: ITEMS[0].setup.z });
+  pause(); show(null);
+  checklist('A. 飛行前檢查', PRE_CHECK, () => {
+    $('bAir').style.display = 'none'; $('bReset').style.display = 'none';
+    $('tut').classList.add('show'); $('mini').style.display = 'block';
+    trail.length = 0;
+    examiner.start();
+    resume();
+  });
+}
+const examiner = new Examiner({
+  setup(it, i) {
+    if (it.setup) { resetPlane(false, it.setup); if (i > 0) toast('飛機已就定位', `${it.code}. ${it.name}`, 2.5); }
+    setHL(null);
+  },
+  phase(i, it, p) {
+    $('tutL').textContent = `考照 · ${it.code}. ${it.name}`;
+    $('tutN').textContent = `${p + 1} / ${it.phases.length}`;
+    $('tutT').textContent = it.phases[p].text;
+    $('tutH').textContent = '';
+    if (p > 0) { const t = $('tut'); t.classList.add('good'); setTimeout(() => t.classList.remove('good'), 600); }
+    if (/開始迫降/.test(it.phases[p].text)) { toast('⚠️ 監評：開始迫降！', '立即將油門收至怠速（15% 以下）', 3); if (navigator.vibrate) navigator.vibrate([100, 60, 100]); }
+  },
+  hint(t) { $('tutH').textContent = t; },
+  toast(a, b) { toast(a, b, 3); },
+  itemDone(i, it, score, pass) {
+    toast(`${pass ? '✅' : '❌'} ${it.code}. ${it.name}`, pass ? `通過 · ${score} 分` : `未通過 · ${score} 分`, 3);
+  },
+  report(res, fatal) {
+    const finish = () => {
+      pause(); $('tut').classList.remove('show');
+      const ok = res.every(r => r.pass), total = res.reduce((a, r) => a + (r.score || 0), 0);
+      cfg.examBest = Math.max(cfg.examBest || 0, total); if (ok) cfg.examPassed = true; save();
+      const rows = res.map(r => `<tr><td>${r.code}. ${r.name}</td><td class="sc">${r.score ?? '—'}</td><td>${r.score === null ? '⏸' : r.pass ? '✅' : '❌'}</td></tr><tr><td colspan="3" class="nt">${r.notes.join('、')}</td></tr>`).join('');
+      dlg(ok ? '🎉 術科測驗合格！' : '術科測驗不合格', '', [['回主畫面', goHome], ['再考一次', startExam, true]],
+        `<table class="rep">${rows}</table><div style="margin-top:8px">總分 <b>${total}</b> / ${ITEMS.length * 100}　·　最佳 ${cfg.examBest}</div>`);
+    };
+    setTimeout(() => {
+      if (fatal) finish();
+      else { pause(); $('tut').classList.remove('show'); checklist('G. 飛行後檢查', POST_CHECK, finish); }
+    }, fm.crashed ? 1800 : 900);
+  },
+});
+
+// 小地圖（從飛手視角：上方＝前方/西，右方＝北）
+const trail = [];
+let miniT = 0;
+function drawMini(dt) {
+  miniT += dt; if (miniT < 0.1) return; miniT = 0;
+  trail.push([fm.pos.x, fm.pos.z]); if (trail.length > 600) trail.shift();
+  const cv = $('mini'), dpr = Math.min(2, window.devicePixelRatio || 1);
+  const W = cv.clientWidth, H = cv.clientHeight;
+  if (cv.width !== W * dpr) { cv.width = W * dpr; cv.height = H * dpr; }
+  const g = cv.getContext('2d'); g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  const k = Math.min(W / 470, H / 250), cx = -55;
+  const P = (x, z) => [W / 2 - z * k, H / 2 + (x - cx) * k];
+  g.fillStyle = 'rgba(70,110,50,0.55)'; g.fillRect(0, 0, W, H);
+  // 跑道
+  g.fillStyle = '#555'; let [a1, b1] = P(-6, 70), [a2, b2] = P(6, -70); g.fillRect(a1, b1, a2 - a1, b2 - b1);
+  const it = examiner.active ? ITEMS[examiner.item] : null;
+  g.strokeStyle = 'rgba(255,255,255,0.8)'; g.lineWidth = 1.2; g.setLineDash([4, 3]);
+  if (it && it.id === 'eight') {
+    for (const sgn of [1, -1]) { const [px, py] = P(C8.x, C8.z + sgn * C8.r); g.beginPath(); g.arc(px, py, C8.r * k, 0, 7); g.stroke(); }
+    const [px, py] = P(C8.x, C8.z); g.setLineDash([]); g.strokeStyle = '#ffd54f'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(px - 5, py); g.lineTo(px + 5, py); g.moveTo(px, py - 5); g.lineTo(px, py + 5); g.stroke();
+  } else if (it) {
+    const pts = [P(0, PAT.zS), P(0, PAT.zN), P(PAT.xFar, PAT.zN), P(PAT.xFar, PAT.zS)];
+    if (it.id === 'taxi') pts.length = 0;
+    g.beginPath(); pts.forEach(([x, y], i) => i ? g.lineTo(x, y) : g.moveTo(x, y)); g.closePath(); g.stroke();
+  }
+  g.setLineDash([]);
+  // 軌跡
+  g.strokeStyle = 'rgba(255,170,60,0.85)'; g.lineWidth = 1.5; g.beginPath();
+  trail.forEach(([x, z], i) => { const [px, py] = P(x, z); i ? g.lineTo(px, py) : g.moveTo(px, py); }); g.stroke();
+  // 飛手
+  const [fx, fy] = P(PILOT.x, PILOT.z); g.fillStyle = '#29b6f6'; g.beginPath(); g.arc(fx, fy, 3.5, 0, 7); g.fill();
+  // 飛機
+  const [px, py] = P(fm.pos.x, fm.pos.z), yaw = fm.euler().y;
+  g.save(); g.translate(px, py); g.rotate(Math.PI / 2 - yaw);
+  g.fillStyle = examiner.S && examiner.S.idle ? '#ff5252' : '#fff'; g.beginPath(); g.moveTo(0, -7); g.lineTo(4.5, 5); g.lineTo(-4.5, 5); g.closePath(); g.fill();
+  g.restore();
+}
+
 $('tlBack').onclick = () => show('home');
 $('hSet').onclick = () => { show(null); $('menu').classList.add('show'); $('bGo').textContent = '完成'; $('bHome').style.display = 'none'; };
 window.__pause = () => { if (game.mode && !paused) $('bMenu').click(); };
@@ -752,4 +870,4 @@ goHome();
 resize();
 updateCamera(0.016);
 requestAnimationFrame(frame);
-window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg, game };
+window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg, game, examiner };

@@ -53,7 +53,7 @@ export class FlightModel {
     this.crashInfo = '';
     this.airTime = 0;
     this.event = null;
-    this.alpha = 0; this.airspeed = 0;
+    this.alpha = 0; this.airspeed = 0; this.prevVh = null;
   }
 
   // ctrl: {thr 0..1, ail -1..1 (右=+), ele -1..1 (拉=+ 抬頭), rud -1..1 (右=+)}
@@ -107,9 +107,23 @@ export class FlightModel {
     const qn = Math.min(2, (V / s.vref) ** 2);
     const target = new Vector3(
       ctrl.ele * s.rates[0] * D2R * aP,
-      -ctrl.rud * s.rates[2] * D2R * aP * (this.onGround ? 1.6 : 1),
+      -ctrl.rud * s.rates[2] * D2R * aP,
       -ctrl.ail * s.rates[1] * D2R * aA,
     );
+    // 地面：前輪轉向（低速可原地小半徑掉頭，高速時轉向量遞減）
+    if (this.onGround) {
+      const gs = Math.hypot(this.vel.x, this.vel.z);
+      target.y += -ctrl.rud * Math.min(1.1, gs / 1.6) * (gs > 7 ? 7 / gs : 1);
+    }
+    // 機頭自然跟隨航跡（速度向量的旋轉），舵量是在此之上的額外角速度
+    if (V > 3 && !this.onGround) {
+      const vh = air.clone().divideScalar(V);
+      if (this.prevVh) {
+        const wf = this.prevVh.clone().cross(vh).divideScalar(dt).applyQuaternion(this.q.clone().invert());
+        if (wf.length() < 4) { target.x += wf.x; target.y += wf.y; }
+      }
+      this.prevVh = vh;
+    } else this.prevVh = null;
     // 練習機／滑翔機：放開搖桿會慢慢自動改平
     if (!this.onGround && (s.autoP || s.autoR)) {
       const e = new Euler().setFromQuaternion(this.q, 'YXZ');
@@ -162,7 +176,7 @@ export class FlightModel {
 
     if (!this.onGround && this.airTime > 3) {
       const hs = Math.hypot(this.vel.x, this.vel.z);
-      this.event = vy > -1.5 ? { type: 'landing', text: '完美降落！', score: hs } : { type: 'landing', text: '安全降落', score: hs };
+      this.event = { type: 'landing', text: vy > -1.5 ? '完美降落！' : '安全降落', score: hs, vy: -vy };
     }
     if (!this.onGround) this.airTime = 0;
     this.onGround = true;
