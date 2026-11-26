@@ -81,14 +81,14 @@ public class MainActivity extends Activity {
     }
 
     @Override
-    protected void onPause() { super.onPause(); web.onPause(); web.evaluateJavascript("document.getElementById('bMenu')&&document.getElementById('menu').classList.contains('show')||document.getElementById('bMenu').click()", null); }
+    protected void onPause() { super.onPause(); web.evaluateJavascript("window.__pause&&__pause()", null); web.onPause(); }
 
     @Override
     protected void onResume() { super.onResume(); web.onResume(); hideSystemUi(); }
 
     @Override
     public void onBackPressed() {
-        web.evaluateJavascript("(function(){var m=document.getElementById('menu');if(m.classList.contains('show'))return 'exit';document.getElementById('bMenu').click();return 'menu';})()",
+        web.evaluateJavascript("window.__back?__back():'exit'",
             v -> { if (v != null && v.contains("exit")) finish(); });
     }
 }

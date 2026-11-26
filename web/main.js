@@ -3,6 +3,7 @@ import { FlightModel, PLANES } from './physics.js';
 import { terrainHeight } from './terrain.js';
 import { buildWorld, PILOT } from './world.js';
 import { buildPlane } from './model.js';
+import { LESSONS, Tutor } from './tutorial.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
@@ -51,21 +52,22 @@ function loadPlane(key) {
 }
 
 function applyWind() {
-  const a = -0.6; // 風從西南方吹來
+  const a = Math.PI / 2; // 風從北方吹來（往 +Z），沿跑道逆風起降
   fm.wind.set(Math.cos(a) * cfg.wind, 0, Math.sin(a) * cfg.wind);
   fm.gust = cfg.gust / 100;
 }
 
 // 起飛方向：逆風起飛
-function resetPlane(air) {
+function resetPlane(air, o = {}) {
   clearDebris();
-  const heading = 0;
+  const heading = o.heading || 0;
   fm.reset(0, 50, heading);
   if (air) {
-    fm.pos.set(0, 45, 60);
-    fm.vel.set(0, 0, -fm.spec.vref * 1.25);
+    fm.pos.set(o.x ?? 0, o.y ?? 45, o.z ?? 60);
+    fm.vel.set(0, 0, -1).applyQuaternion(fm.q).multiplyScalar(fm.spec.vref * 1.2);
     fm.onGround = false;
-    setThrottleStick(0.5);
+    fm.airTime = 5;
+    setThrottleStick(o.thr ?? 0.5);
   } else {
     setThrottleStick(0);
   }
@@ -460,13 +462,23 @@ function frame(now) {
     fm.step(STEP, input);
     if (!fm.crashed && !fm.onGround && treeHit()) fm.crash('撞到樹了');
     if (fm.pos.lengthSq() > 2900 * 2900 && !fm.crashed) fm.crash('飛出邊界');
+    if (game.mode === 'tut' && game.lesson.groundOnly && !fm.crashed) {
+      const gy = terrainHeight(fm.pos.x, fm.pos.z) + fm.gearH;
+      if (fm.pos.y > gy) { fm.pos.y = gy; if (fm.vel.y > 0) fm.vel.y = 0; }
+    }
   }
+  if (game.mode === 'tut' && fm.event) tutor.event(fm, fm.event);
+  if (game.mode === 'tut') tutor.update(dt, fm, input);
   if (fm.event) {
     const ev = fm.event; fm.event = null;
-    if (ev.type === 'crash') { explode(); toast('💥 墜機', ev.text + '　·　點「重置」再飛一次', 3.5); crashTimer = 4; if (navigator.vibrate) navigator.vibrate(120); }
+    if (ev.type === 'crash') {
+      explode(); if (navigator.vibrate) navigator.vibrate(120);
+      if (game.mode === 'tut') { toast('💥 墜機', ev.text, 2); crashTimer = 1.8; }
+      else { toast('💥 墜機', ev.text + '　·　點「重置」再飛一次', 3.5); crashTimer = 4; }
+    }
     else toast(ev.text === '完美降落！' ? '🛬 ' + ev.text : ev.text, '接地速度 ' + (ev.score * 3.6).toFixed(0) + ' km/h', 2.5);
   }
-  if (fm.crashed && crashTimer > 0) { crashTimer -= dt; if (crashTimer <= 0) resetPlane(false); }
+  if (fm.crashed && crashTimer > 0) { crashTimer -= dt; if (crashTimer <= 0) { if (game.mode === 'tut') tutor.fail('墜機了（' + fm.crashInfo + '）'); else resetPlane(false); } }
 
   // 更新模型
   mdl.group.position.copy(fm.pos);
@@ -501,6 +513,137 @@ function frame(now) {
   renderAll();
 }
 
+// ---------- 遊戲模式：主畫面／自由／教學 ----------
+const game = { mode: null, lesson: null };
+cfg.done = cfg.done || {};
+function pause() { paused = true; if (gain) gain.gain.value = 0; }
+function resume() { paused = false; audioStart(); last = performance.now(); accum = 0; }
+function show(id) {
+  for (const k of ['home', 'tutList']) $(k).classList.toggle('show', k === id);
+  if (id === 'tutList') buildLessons();
+  if (id === 'home') $('tutProg').textContent = LESSONS.filter(l => cfg.done[l.id]).length + '/' + LESSONS.length;
+}
+function goHome() {
+  pause(); game.mode = null; tutor.stop();
+  $('menu').classList.remove('show'); $('dlg').classList.remove('show'); $('tut').classList.remove('show');
+  setHL(null);
+  show('home');
+}
+function startFree() {
+  game.mode = 'free'; game.lesson = null;
+  loadPlane(cfg.plane);
+  $('bAir').style.display = ''; $('bReset').textContent = '重置';
+  show(null); resume();
+}
+
+// 操作 → 搖桿位置（依 Mode 1／2）
+const FN = { thr: '油門', ele: '升降舵', ail: '副翼', rud: '方向舵' };
+function stickOf(fn) { return cfg.mode === 2 ? ({ thr: 'L', rud: 'L', ele: 'R', ail: 'R' })[fn] : ({ ele: 'L', rud: 'L', thr: 'R', ail: 'R' })[fn]; }
+function where(fn) { return (stickOf(fn) === 'L' ? '左搖桿' : '右搖桿') + '的「' + (fn === 'thr' || fn === 'ele' ? '上下' : '左右') + '」方向'; }
+const fill = t => t.replace(/\{(thr|ele|ail|rud)\}/g, (_, f) => '【' + where(f) + '】');
+function setHL(list) {
+  for (const k of ['L', 'R']) {
+    const base = sticks[k].el.querySelector('.base');
+    base.classList.remove('hl');
+    base.querySelectorAll('.arr').forEach(a => a.remove());
+  }
+  if (!list) return;
+  const DIR = { up: [0, -1, 0], down: [0, 1, 180], left: [-1, 0, 270], right: [1, 0, 90] };
+  for (const [fn, d] of list) {
+    const base = sticks[stickOf(fn)].el.querySelector('.base');
+    base.classList.add('hl');
+    const a = document.createElement('div'), [dx, dy, rot] = DIR[d];
+    a.className = 'arr';
+    a.style.left = (50 + dx * 34) + '%'; a.style.top = (50 + dy * 34) + '%';
+    a.style.transform = `rotate(${rot}deg)`;
+    base.appendChild(a);
+  }
+}
+
+function dlg(title, text, acts) {
+  $('dT').textContent = title; $('dP').textContent = text;
+  const A = $('dA'); A.innerHTML = '';
+  for (const [t, fn, pri] of acts) {
+    const b = document.createElement('button'); b.textContent = t; if (pri) b.className = 'pri';
+    b.onclick = () => { $('dlg').classList.remove('show'); fn(); };
+    A.appendChild(b);
+  }
+  $('dlg').classList.add('show');
+}
+
+function buildLessons() {
+  const el = $('lessons'); el.innerHTML = '';
+  LESSONS.forEach((L, i) => {
+    const b = document.createElement('button');
+    b.className = 'lsn';
+    b.innerHTML = `<div class="n">第 ${i + 1} 課</div><b>${L.icon} ${L.name}</b><span>${L.desc}</span>${cfg.done[L.id] ? '<div class="ok">✓ 完成</div>' : ''}`;
+    b.onclick = () => openLesson(L);
+    el.appendChild(b);
+  });
+}
+function openLesson(L) {
+  const i = LESSONS.indexOf(L);
+  dlg(`第 ${i + 1} 課：${L.icon} ${L.name}`, fill(L.intro), [['返回', () => show('tutList')], ['開始練習', () => startLesson(L), true]]);
+}
+function startLesson(L) {
+  game.mode = 'tut'; game.lesson = L;
+  if (!fm || fm.spec !== PLANES.trainer) loadPlane('trainer');
+  resetPlane(!!L.setup.air, L.setup);
+  $('bAir').style.display = 'none'; $('bReset').textContent = '重來';
+  show(null);
+  $('tut').classList.add('show');
+  tutor.start(L);
+  resume();
+}
+
+const tutor = new Tutor({
+  step(L, i, s) {
+    $('tutL').textContent = `第 ${LESSONS.indexOf(L) + 1} 課 · ${L.name}`;
+    $('tutN').textContent = `步驟 ${i + 1} / ${L.steps.length}`;
+    $('tutT').textContent = fill(s.text);
+    $('tutH').textContent = '';
+    setHL(s.hl || null);
+  },
+  hint(t) { $('tutH').textContent = t; },
+  good() {
+    const t = $('tut'); t.classList.add('good'); setTimeout(() => t.classList.remove('good'), 700);
+    if (navigator.vibrate) navigator.vibrate(40);
+  },
+  complete(L) {
+    cfg.done[L.id] = true; save();
+    setHL(null);
+    setTimeout(() => {
+      pause(); $('tut').classList.remove('show');
+      const i = LESSONS.indexOf(L), next = LESSONS[i + 1];
+      const acts = [['課程列表', () => { goHome(); show('tutList'); }]];
+      if (next) acts.push(['下一課：' + next.name, () => openLesson(next), true]);
+      else acts.push(['自由飛行', startFree, true]);
+      dlg(`✅ 第 ${i + 1} 課完成！`, next ? `你已經學會「${L.name}」了。` : '恭喜完成全部新手教學！四個操作桿和降落都學會了，去自由模式盡情飛吧。', acts);
+    }, 900);
+  },
+  fail(msg) {
+    setHL(null);
+    setTimeout(() => {
+      pause(); $('tut').classList.remove('show');
+      dlg('再試一次', msg, [['課程列表', () => { goHome(); show('tutList'); }], ['重來', () => startLesson(game.lesson), true]]);
+    }, 600);
+  },
+});
+
+$('mFree').onclick = startFree;
+$('mTut').onclick = () => show('tutList');
+$('mExam').onclick = () => {}; // 考照模式：尚未開放
+$('tlBack').onclick = () => show('home');
+$('hSet').onclick = () => { show(null); $('menu').classList.add('show'); $('bGo').textContent = '完成'; $('bHome').style.display = 'none'; };
+window.__pause = () => { if (game.mode && !paused) $('bMenu').click(); };
+window.__back = () => {
+  if ($('dlg').classList.contains('show')) return 'ok';
+  if ($('tutList').classList.contains('show')) { show('home'); return 'ok'; }
+  if ($('home').classList.contains('show')) return 'exit';
+  if ($('menu').classList.contains('show')) { $('bGo').click(); return 'ok'; }
+  $('bMenu').click(); return 'ok';
+};
+
 // ---------- 選單 ----------
 let paused = true;
 function buildMenu() {
@@ -510,7 +653,7 @@ function buildMenu() {
     const b = document.createElement('button');
     b.className = 'opt' + (cfg.plane === k ? ' sel' : '');
     b.innerHTML = `<b>${PLANES[k].name}</b><span>${desc[k]}</span>`;
-    b.onclick = () => { cfg.plane = k; save(); buildMenu(); loadPlane(k); };
+    b.onclick = () => { cfg.plane = k; save(); buildMenu(); if (game.mode !== 'tut') { loadPlane(k); } };
     ps.appendChild(b);
   }
   const opts = (id, list, key, cb) => {
@@ -589,9 +732,14 @@ function menuTick() {
 setInterval(menuTick, 60);
 
 $('bPad').onclick = () => { cfg.pad = !cfg.pad; save(); buildMap(); };
-$('bGo').onclick = () => { $('menu').classList.remove('show'); paused = false; audioStart(); last = performance.now(); };
-$('bMenu').onclick = () => { $('menu').classList.add('show'); paused = true; $('bGo').textContent = '繼續飛行'; if (gain) gain.gain.value = 0; };
-$('bReset').onclick = () => resetPlane(false);
+$('bGo').onclick = () => {
+  $('menu').classList.remove('show');
+  if (!game.mode) { show('home'); return; }
+  resume();
+};
+$('bMenu').onclick = () => { pause(); $('menu').classList.add('show'); $('bGo').textContent = '繼續飛行'; $('bHome').style.display = ''; };
+$('bHome').onclick = goHome;
+$('bReset').onclick = () => game.mode === 'tut' ? startLesson(game.lesson) : resetPlane(false);
 $('bAir').onclick = () => resetPlane(true);
 $('bSmoke').onclick = () => { smoke.on = !smoke.on; $('bSmoke').classList.toggle('on', smoke.on); };
 $('bCam').onclick = () => { setCam((cfg.cam + 1) % 3); buildMenu(); };
@@ -600,7 +748,8 @@ setCam(cfg.cam);
 
 loadPlane(cfg.plane);
 buildMenu();
+goHome();
 resize();
 updateCamera(0.016);
 requestAnimationFrame(frame);
-window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg };
+window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg, game };

@@ -9,7 +9,7 @@ export const PLANES = {
     name: '練習機', mass: 1.4, S: 0.32, span: 1.4, length: 1.1,
     CL0: 0.28, CLa: 4.8, trimA: 0.5, stall: 14, CD0: 0.04, k: 0.06,
     thrust: 13, vprop: 35, rates: [150, 180, 90], vref: 14,
-    stabP: 9, stabY: 6, dihedral: 3.0, propwash: 0.35, resp: 6,
+    stabP: 9, stabY: 6, dihedral: 3.0, propwash: 0.35, resp: 6, autoP: 0.9, autoR: 0.8,
     color: 0xffc41f, accent: 0xd32f2f, highWing: true,
   },
   sport: {
@@ -23,7 +23,7 @@ export const PLANES = {
     name: '滑翔機', mass: 1.1, S: 0.36, span: 2.0, length: 1.2,
     CL0: 0.45, CLa: 5.2, trimA: 0, stall: 12, CD0: 0.022, k: 0.035,
     thrust: 7, vprop: 26, rates: [110, 110, 70], vref: 12,
-    stabP: 10, stabY: 7, dihedral: 4.5, propwash: 0.25, resp: 5,
+    stabP: 10, stabY: 7, dihedral: 4.5, propwash: 0.25, resp: 5, autoP: 0.3, autoR: 0.3,
     color: 0xffffff, accent: 0xff6d00, highWing: true, glider: true,
   },
 };
@@ -110,6 +110,14 @@ export class FlightModel {
       -ctrl.rud * s.rates[2] * D2R * aP * (this.onGround ? 1.6 : 1),
       -ctrl.ail * s.rates[1] * D2R * aA,
     );
+    // 練習機／滑翔機：放開搖桿會慢慢自動改平
+    if (!this.onGround && (s.autoP || s.autoR)) {
+      const e = new Euler().setFromQuaternion(this.q, 'YXZ');
+      if (Math.abs(e.z) < 1.4) {
+        target.x += -e.x * (s.autoP || 0) * Math.max(0, 1 - Math.abs(ctrl.ele) * 3) * aA;
+        target.z += -e.z * (s.autoR || 0) * Math.max(0, 1 - Math.abs(ctrl.ail) * 3) * aA;
+      }
+    }
     const damp = [Math.max(aP, 0.15), Math.max(aP, 0.15), Math.max(aA, 0.15)];
     const acc = new Vector3(
       (target.x - this.w.x) * s.resp * damp[0] - s.stabP * (alpha - (s.trimA || 0) * D2R) * qn,
@@ -148,13 +156,13 @@ export class FlightModel {
 
     const e = new Euler().setFromQuaternion(this.q, 'YXZ');
     const vy = this.vel.y;
-    if (vy < -4.5) return this.crash('落地太重 (' + (-vy).toFixed(1) + ' m/s)');
+    if (vy < -5.5) return this.crash('落地太重 (' + (-vy).toFixed(1) + ' m/s)');
     if (Math.abs(e.z) > 30 * Math.PI / 180) return this.crash('落地時坡度過大');
     if (e.x < -12 * Math.PI / 180) return this.crash('機頭朝下觸地');
 
     if (!this.onGround && this.airTime > 3) {
       const hs = Math.hypot(this.vel.x, this.vel.z);
-      this.event = vy > -1.2 ? { type: 'landing', text: '完美降落！', score: hs } : { type: 'landing', text: '安全降落', score: hs };
+      this.event = vy > -1.5 ? { type: 'landing', text: '完美降落！', score: hs } : { type: 'landing', text: '安全降落', score: hs };
     }
     if (!this.onGround) this.airTime = 0;
     this.onGround = true;

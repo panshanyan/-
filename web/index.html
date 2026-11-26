@@ -19,6 +19,47 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
 .btn.on{background:rgba(255,110,30,.75)}
 #pip{position:fixed;display:none;border:2px solid rgba(255,255,255,.55);border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:none;z-index:2}
 #pip span{position:absolute;top:4px;left:8px;font-size:11px;font-weight:700;text-shadow:0 1px 3px #000;opacity:.9}
+
+.screen{position:fixed;inset:0;z-index:20;display:none;overflow:auto;padding:max(16px,env(safe-area-inset-top)) max(22px,env(safe-area-inset-right)) 18px max(22px,env(safe-area-inset-left));background:linear-gradient(160deg,rgba(14,32,58,.92),rgba(6,10,16,.88));backdrop-filter:blur(6px)}
+.screen.show{display:block}
+.homeTitle{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
+.homeTitle h1{font-size:34px;margin:4px 0}
+.modes{display:grid;grid-template-columns:repeat(3,1fr);gap:14px;margin-top:16px}
+.mode{position:relative;border:0;border-radius:18px;padding:18px 16px 16px;text-align:left;color:#fff;min-height:150px;box-shadow:0 8px 24px rgba(0,0,0,.35)}
+.mode .ic{font-size:34px}
+.mode b{display:block;font-size:21px;margin:6px 0 4px}
+.mode span{font-size:13px;opacity:.85;line-height:1.4}
+.mode:active{transform:scale(.98)}
+.m-free{background:linear-gradient(135deg,#ff8a1f,#e2442f)}
+.m-tut{background:linear-gradient(135deg,#2f9e6e,#1c6aa8)}
+.m-exam{background:linear-gradient(135deg,#55606e,#363e49)}
+.badge{position:absolute;top:12px;right:12px;font-size:11px;font-weight:700;background:rgba(255,255,255,.2);padding:3px 8px;border-radius:20px}
+.homeBar{display:flex;justify-content:space-between;align-items:center;margin-top:16px}
+.back{background:none;border:0;color:#fff;font-size:15px;padding:6px 0;opacity:.85}
+.lessons{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;margin-top:12px}
+.lsn{background:rgba(255,255,255,.08);border:2px solid transparent;border-radius:14px;padding:12px;color:#fff;text-align:left;position:relative}
+.lsn:active{border-color:#2f9e6e}
+.lsn .n{font-size:12px;opacity:.6}
+.lsn b{display:block;font-size:18px;margin:3px 0}
+.lsn span{font-size:12px;opacity:.75}
+.lsn .ok{position:absolute;top:10px;right:12px;color:#4cd98a;font-weight:800}
+#dlg{position:fixed;inset:0;z-index:30;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);padding:16px}
+#dlg.show{display:flex}
+#dlg .box{background:#121b26;border:1px solid rgba(255,255,255,.12);border-radius:18px;padding:18px 20px;max-width:560px;width:100%;max-height:100%;overflow:auto}
+#dlg h2{margin:0 0 8px;font-size:24px}
+#dlg p{white-space:pre-line;line-height:1.55;font-size:15px;margin:0 0 6px;opacity:.92}
+#dlg .acts{display:flex;gap:10px;margin-top:14px}
+#dlg .acts button{flex:1;height:46px;border:0;border-radius:12px;font-size:16px;font-weight:700;color:#fff;background:rgba(255,255,255,.12)}
+#dlg .acts button.pri{background:linear-gradient(90deg,#2f9e6e,#1c6aa8)}
+#tut{position:fixed;top:62px;left:50%;transform:translateX(-50%);width:min(560px,60vw);background:rgba(10,20,30,.72);backdrop-filter:blur(6px);border:1px solid rgba(76,217,138,.45);border-radius:14px;padding:8px 14px;display:none;pointer-events:none;z-index:3}
+#tut.show{display:block}
+#tut .hd{font-size:12px;opacity:.75;display:flex;justify-content:space-between}
+#tut .tx{font-size:17px;font-weight:700;margin-top:3px;line-height:1.35}
+#tut .hi{font-size:13px;color:#ffd54f;margin-top:2px;min-height:16px}
+#tut.good{border-color:#4cd98a;box-shadow:0 0 22px rgba(76,217,138,.7)}
+.base.hl{border-color:#ffd54f;box-shadow:0 0 22px rgba(255,213,79,.55)}
+.arr{position:absolute;left:50%;top:50%;width:0;height:0;border-left:14px solid transparent;border-right:14px solid transparent;border-bottom:22px solid #ffd54f;margin:-11px 0 0 -14px;animation:pulse 1s infinite;filter:drop-shadow(0 2px 4px rgba(0,0,0,.6))}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
 #warn{position:fixed;top:64px;left:50%;transform:translateX(-50%);font-weight:800;font-size:20px;color:#ff5252;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .2s;pointer-events:none}
 #toast{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0;transition:opacity .3s}
 #toast h2{margin:0;font-size:34px;text-shadow:0 3px 12px rgba(0,0,0,.6)}
@@ -75,14 +116,37 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
 <div id="warn">失速！</div>
 <div id="toast"><h2 id="toastT"></h2><p id="toastP"></p></div>
 
+
+<div id="home" class="screen show">
+  <div class="card">
+    <div class="homeTitle"><h1>✈︎ RC 飛行模擬</h1><span class="mini">第三人稱航空模型飛機模擬器</span></div>
+    <div class="modes">
+      <button class="mode m-free" id="mFree"><div class="ic">🛩️</div><b>自由模式</b><span>選擇飛機與視角，想怎麼飛就怎麼飛</span></button>
+      <button class="mode m-tut" id="mTut"><div class="ic">🎓</div><b>新手教學</b><span>一步步學會四個操作桿與降落要領</span><div class="badge" id="tutProg">0/5</div></button>
+      <button class="mode m-exam" id="mExam"><div class="ic">📋</div><b>考照模式</b><span>模擬遙控飛機操作證考試</span><div class="badge">即將推出</div></button>
+    </div>
+    <div class="homeBar"><button class="btn" id="hSet">⚙ 設定</button><span class="mini">by ynfly_fpv</span></div>
+  </div>
+</div>
+
+<div id="tutList" class="screen">
+  <div class="card">
+    <button class="back" id="tlBack">‹ 返回</button>
+    <h1>🎓 新手教學</h1>
+    <div class="mini">建議依序完成。教學使用練習機，視角依照設定（建議地面目視）。</div>
+    <div class="lessons" id="lessons"></div>
+  </div>
+</div>
+
+<div id="dlg"><div class="box"><h2 id="dT"></h2><p id="dP"></p><div class="acts" id="dA"></div></div></div>
+<div id="tut"><div class="hd"><span id="tutL"></span><span id="tutN"></span></div><div class="tx" id="tutT"></div><div class="hi" id="tutH"></div></div>
 <div id="pip"><span></span></div>
 <div class="stick" id="stickL"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
 <div class="stick" id="stickR"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
 
-<div id="menu" class="show">
+<div id="menu">
   <div class="card">
-    <h1>✈︎ RC 飛行模擬</h1>
-    <div class="mini">第三人稱航空模型飛機模擬器 · 支援觸控搖桿與 USB 遙控器</div>
+    <h1>⚙ 設定</h1>
 
     <h3>選擇飛機</h3>
     <div class="row" id="planeSel"></div>
@@ -109,9 +173,9 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
     <table class="map" id="mapTbl"></table>
     <div class="row"><button class="btn" id="bPad">遙控器：關</button><span class="mini" id="padInfo">尚未偵測到遙控器</span></div>
 
-    <button class="go" id="bGo">開始飛行</button>
-    <div class="mini">小技巧：油門推到底滑跑，速度夠了輕拉升降舵起飛。地面視角最像真實飛 RC，飛機朝你飛來時左右是反的！</div>
-    <div class="foot">by ynfly_fpv</div>
+    <button class="go" id="bGo">繼續飛行</button>
+    <button class="btn" id="bHome" style="width:100%;height:44px">回主畫面</button>
+    <div class="mini" style="margin-top:8px">小技巧：油門推到底滑跑，速度夠了輕輕往下拉升降舵起飛。地面視角最像真實飛 RC，飛機朝你飛來時左右是反的！</div>
   </div>
 </div>
 
