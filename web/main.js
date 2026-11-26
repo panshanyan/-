@@ -311,6 +311,7 @@ function updateAudio(dist) {
   gain.gain.setTargetAtTime((0.015 + thr * 0.13) * (cfg.vol / 100) * att * (thr > 0.02 ? 1 : 0.3), t, 0.1);
 }
 
+function visScale() { return game.mode === 'exam' ? 1.5 : 1; }
 // ---------- 相機 ----------
 // cfg.cam：0 = 第三人稱（追尾）、1 = 地面目視、2 = 第一人稱（FPV）
 // cfg.pip：地面目視模式下方小視窗 0 = 關、1 = 第三人稱、2 = 第一人稱
@@ -362,7 +363,7 @@ const PILOT_DIR = new THREE.Vector3(-1, 0, 0);
 function lockedCam(cam) {
   cam.fov = 40;
   const half = Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect);
-  const d = (fm.spec.span / 2) / Math.tan(half) * 1.25;
+  const d = (fm.spec.span * visScale() / 2) / Math.tan(half) * 1.25;
   cam.up.set(0, 1, 0);
   cam.position.copy(fm.pos).addScaledVector(PILOT_DIR, -d);
   cam.lookAt(fm.pos.x + PILOT_DIR.x, fm.pos.y, fm.pos.z + PILOT_DIR.z);
@@ -383,7 +384,8 @@ function updateCamera(dt) {
 const pipActive = () => cfg.cam === 1 && cfg.pip > 0;
 function pipRect() {
   const W = window.innerWidth, H = window.innerHeight;
-  const w = Math.round(Math.min(W * 0.34, 340, H * 0.55)), h = Math.round(w * 0.62);
+  const k = game.mode === 'exam' ? 0.7 : 1; // 考照模式：小視窗縮為 70%
+  const w = Math.round(Math.min(W * 0.34, 340, H * 0.55) * k), h = Math.round(w * 0.62);
   return { x: Math.round((W - w) / 2), y: Math.max(8, Math.round(H * 0.025)), w, h };
 }
 function layoutPip() {
@@ -494,7 +496,10 @@ function frame(now) {
   if (fm.crashed && crashTimer > 0) { crashTimer -= dt; if (crashTimer <= 0) { if (game.mode === 'tut') tutor.fail('墜機了（' + fm.crashInfo + '）'); else resetPlane(false); } }
 
   // 更新模型
-  mdl.group.position.copy(fm.pos);
+  // 考照模式：飛機外觀放大 1.5 倍（只影響顯示，物理不變），並抬高讓輪子貼地
+  const vs = visScale();
+  mdl.group.scale.setScalar(vs);
+  mdl.group.position.copy(fm.pos).add(tmp.set(0, (vs - 1) * fm.gearH, 0).applyQuaternion(fm.q));
   mdl.group.quaternion.copy(fm.q);
   mdl.update(input, fm.crashed ? 0 : input.thr * (fm.spec.glider ? 70 : 90) + (input.thr > 0.02 ? 15 : 0), dt);
 
@@ -512,7 +517,7 @@ function frame(now) {
   blob.material.opacity = 0.38 * clamp(1 - hAbove / 60, 0, 1);
 
   // 拉煙：從機尾噴出
-  tmp.set(0, 0, fm.spec.length * 0.5).applyQuaternion(fm.q).add(fm.pos);
+  tmp.set(0, 0, fm.spec.length * 0.5 * vs).applyQuaternion(fm.q).add(fm.pos);
   smoke.update(dt, fm.crashed || fm.onGround ? null : tmp);
   smoke.mat.uniforms.scale.value = window.innerHeight / (2 * Math.tan(camera.fov * Math.PI / 360));
 
@@ -542,7 +547,7 @@ function show(id) {
   if (id === 'home') $('tutProg').textContent = LESSONS.filter(l => cfg.done[l.id]).length + '/' + LESSONS.length;
 }
 function goHome() {
-  pause(); game.mode = null; tutor.stop(); examiner.stop(); $('mini').style.display = 'none';
+  pause(); game.mode = null; layoutPip(); tutor.stop(); examiner.stop(); $('mini').style.display = 'none';
   $('menu').classList.remove('show'); $('dlg').classList.remove('show'); $('tut').classList.remove('show');
   setHL(null);
   show('home');
@@ -693,7 +698,7 @@ function checklist(title, items, done) {
 }
 // single = null：測驗模式（全部科目連續）；single = 索引：練習模式（單一科目）
 function startExam(single = null) {
-  game.mode = 'exam'; game.lesson = null; game.single = single;
+  game.mode = 'exam'; game.lesson = null; game.single = single; layoutPip();
   if (!fm || fm.spec !== PLANES.trainer) loadPlane('trainer');
   resetPlane(false, { z: ITEMS[0].setup.z });
   pause(); show(null);
