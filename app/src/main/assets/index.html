@@ -2,115 +2,154 @@
 <html lang="zh-Hant">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>黑盒子分析</title>
-<link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Semi+Condensed:wght@600;700&family=Noto+Sans+TC:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
-/* VOICE: a field tool for an FPV pilot at the flying spot, clear and direct
-   IDEA: the goggles' OSD overlaid on a flight trace, read like an instrument strip
-   PICTURE: the stacked trace strips themselves (gyro vs stick, motors, battery), with findings pinned to them
-   COLOUR and TYPE: white or night ground, ink text, prop-orange accent, signal red/amber/green for verdicts; Barlow Semi Condensed + Noto Sans TC
-   LAYOUT: one column on phone: load button, verdict cards, strips, spectrum, settings */
-:root{color-scheme:light dark;--bg:light-dark(#f6f7f9,#0d1117);--card:light-dark(#fff,#161b22);--ink:light-dark(#151a21,#e8ebef);--mute:light-dark(#5b6472,#9aa4b2);--line:light-dark(#e1e4e9,#2a313c);--acc:#ff5a1f;--bad:#e5383b;--warn:#f2a10c;--ok:#22a35a;--grid:light-dark(#eceef2,#1f252e)}
+/* VOICE: a pit-side tuning assistant: plain talk first, PIDtoolbox depth one tap away
+   IDEA: PIDtoolbox's A/B tuning bench (orange test A, blue test B) folded into a phone with a bottom tab bar
+   PICTURE: the score ring and plain-language verdict on Home; heatmaps, step curves and bars on the tool tabs
+   COLOUR and TYPE: white or night ground, ink text, orange A #ff6a1f, blue B #2f6bff, verdict red/amber/green; Barlow Semi Condensed + Noto Sans TC
+   LAYOUT: sticky log picker on top, one column of cards, fixed bottom tabs with safe-area padding */
+:root{color-scheme:light dark;--bg:light-dark(#f5f6f8,#0d1117);--card:light-dark(#fff,#161b22);--ink:light-dark(#151a21,#e8ebef);--mute:light-dark(#5b6472,#9aa4b2);--line:light-dark(#e1e4e9,#2a313c);--grid:light-dark(#eceef2,#222933);--A:#ff6a1f;--B:#2f6bff;--bad:#e5383b;--warn:#f2a10c;--ok:#22a35a}
 :root[data-theme=light]{color-scheme:light}:root[data-theme=dark]{color-scheme:dark}
 *{box-sizing:border-box;min-width:0}
-body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.55 "Noto Sans TC",system-ui,sans-serif;overflow-x:clip}
-h1,h2{font-family:"Barlow Semi Condensed","Noto Sans TC",sans-serif;line-height:1.1;margin:0;text-wrap:balance}
-h1{font-size:clamp(30px,6vw,44px)}h2{font-size:22px;margin-bottom:12px}
-.wrap{max-width:1100px;margin:0 auto;padding:0 max(4vw,14px)}
-header{background:#151a21;color:#fff;padding:22px 0 20px;border-bottom:3px solid var(--acc)}
-header .wrap{display:flex;flex-wrap:wrap;gap:14px;align-items:center;justify-content:space-between}
-header p{margin:4px 0 0;color:#c6ccd6;font-size:14px}
-.btn{appearance:none;border:0;border-radius:10px;min-height:44px;padding:10px 18px;font:600 16px "Noto Sans TC",sans-serif;cursor:pointer;background:var(--acc);color:#fff}
-.btn:focus-visible,.chip:focus-visible,select:focus-visible{outline:3px solid var(--acc);outline-offset:2px}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.6 "Noto Sans TC",system-ui,sans-serif;overflow-x:clip;padding-bottom:calc(72px + env(safe-area-inset-bottom))}
+h1,h2,h3{font-family:"Barlow Semi Condensed","Noto Sans TC",sans-serif;line-height:1.15;margin:0;text-wrap:balance}
+h2{font-size:22px;margin:22px 0 10px}h3{font-size:17px;margin:0 0 4px}
+.wrap{max-width:980px;margin:0 auto;padding:0 max(4vw,14px)}
+header{background:#151a21;color:#fff;padding:calc(14px + env(safe-area-inset-top)) 0 12px;border-bottom:3px solid var(--A)}
+header .wrap{display:flex;gap:12px;align-items:center;justify-content:space-between}
+header h1{font-size:26px}
+.btn{appearance:none;border:0;border-radius:10px;min-height:44px;padding:10px 16px;font:600 15px "Noto Sans TC",sans-serif;cursor:pointer;background:var(--A);color:#fff;white-space:nowrap}
 .btn.sec{background:var(--card);color:var(--ink);border:1px solid var(--line)}
-section{padding:22px 0}
-.empty{border:2px dashed var(--line);border-radius:14px;padding:28px;text-align:center;color:var(--mute);background:var(--card)}
-.empty.drag{border-color:var(--acc)}
-.chips{display:flex;flex-wrap:wrap;gap:8px}
-.chip{border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;min-height:40px;padding:6px 14px;font:500 14px "Noto Sans TC",sans-serif;cursor:pointer}
+:focus-visible{outline:3px solid var(--A);outline-offset:2px}
+.picker{position:sticky;top:0;z-index:5;background:var(--bg);border-bottom:1px solid var(--line);padding:8px 0}
+.chips{display:flex;gap:8px;overflow-x:auto;scrollbar-width:none;padding:2px}
+.chip{flex:none;border:1px solid var(--line);background:var(--card);color:var(--ink);border-radius:999px;min-height:40px;padding:6px 14px;font:500 14px "Noto Sans TC",sans-serif;cursor:pointer;white-space:nowrap}
 .chip[aria-pressed=true]{background:var(--ink);color:var(--bg);border-color:var(--ink)}
-.sum{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px;margin-top:14px}
-.sum div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:10px 12px}
-.sum b{display:block;font:700 19px/1.2 "Barlow Semi Condensed","Noto Sans TC",sans-serif;overflow-wrap:anywhere}
-.sum span{font-size:13px;color:var(--mute)}
-.finds{display:grid;gap:10px}
-.f{background:var(--card);border:1px solid var(--line);border-left:6px solid var(--ok);border-radius:12px;padding:12px 14px}
-.f.bad{border-left-color:var(--bad)}.f.warn{border-left-color:var(--warn)}
-.f h3{margin:0 0 4px;font-size:17px}.f p{margin:0;font-size:15px;color:var(--mute)}
-.f button{margin-top:8px;min-height:36px;padding:4px 12px;font-size:14px}
-.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:10px 0}
-.tools input[type=range]{flex:1 1 200px;accent-color:var(--acc);min-height:44px}
-.tools output{font:600 15px "Barlow Semi Condensed",sans-serif;white-space:nowrap}
-.strip{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;padding:8px 8px 4px}
-.strip .lab{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px;color:var(--mute);padding:0 4px 4px}
-.strip .lab i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:4px;vertical-align:middle}
-.strip canvas{display:block;width:100%;height:150px;touch-action:pan-y}
-.spec canvas{height:200px}
-table{width:100%;border-collapse:collapse;background:var(--card);border-radius:12px;overflow:hidden;font-size:14px}
-td,th{padding:8px 10px;border-bottom:1px solid var(--line);text-align:left}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
-th{font-weight:600;color:var(--mute);white-space:nowrap}
-tr.go{cursor:pointer}tr.go:hover,tr.go:focus-visible{background:var(--grid);outline:none}
+.chip .tag{display:inline-block;min-width:20px;border-radius:6px;margin-right:6px;font-weight:700;color:#fff;text-align:center}
+.chip.A{border-color:var(--A);box-shadow:inset 0 0 0 1px var(--A)}.chip.A .tag{background:var(--A)}
+.chip.B{border-color:var(--B);box-shadow:inset 0 0 0 1px var(--B)}.chip.B .tag{background:var(--B)}
+.hint{font-size:13px;color:var(--mute);margin:6px 0 0}
+.card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px;margin-bottom:12px}
+.hero{display:grid;grid-template-columns:auto minmax(0,1fr);gap:16px;align-items:center}
+.ring{width:108px;height:108px}
+.hero p{margin:4px 0 0;font-size:18px;font-weight:500}
+.scores{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px}
+.sc b{font:700 26px "Barlow Semi Condensed",sans-serif}.sc span{display:block;font-size:13px;color:var(--mute)}
+.bar{height:6px;border-radius:3px;background:var(--grid);overflow:hidden;margin:4px 0}.bar i{display:block;height:100%}
+.sec p{margin:0;color:var(--ink)}
+.cli{background:#151a21;color:#e8ebef;border-radius:12px;padding:12px;font:14px/1.7 ui-monospace,Menlo,monospace;overflow-x:auto}
+.cli .why{color:#8b96a5;font-family:"Noto Sans TC",sans-serif;font-size:13px;display:block;margin-bottom:6px}
+.f{border-left:5px solid var(--ok);padding:8px 0 8px 12px;margin:8px 0}.f.bad{border-color:var(--bad)}.f.warn{border-color:var(--warn)}
+.f p{margin:0;font-size:14px;color:var(--mute)}
+.tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin:8px 0}
+select{font:16px "Noto Sans TC",sans-serif;min-height:44px;border-radius:10px;border:1px solid var(--line);background:var(--card);color:var(--ink);padding:0 10px}
+input[type=range]{flex:1 1 180px;accent-color:var(--A);min-height:44px}
+.fig{position:relative;height:200px}.fig canvas{position:absolute;inset:0;width:100%;height:100%;touch-action:pan-y}
+.fig.tall{height:260px}
+.lab{display:flex;flex-wrap:wrap;gap:4px 12px;font-size:13px;color:var(--mute);margin-bottom:6px}
+.lab i{display:inline-block;width:12px;height:3px;border-radius:2px;margin-right:4px;vertical-align:middle}
+.strip{background:var(--card);border:1px solid var(--line);border-radius:12px;margin-bottom:10px;padding:8px}
+.strip canvas{display:block;width:100%;height:140px;touch-action:pan-y}
+table{width:100%;border-collapse:collapse;font-size:14px}
+td,th{padding:7px 8px;border-bottom:1px solid var(--line);text-align:left}td.n{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+th{font-weight:600;color:var(--mute);white-space:nowrap}tr.diff td{background:light-dark(#fff4ec,#2a1d14)}
 .scroll{overflow-x:auto}
-.note{font-size:13px;color:var(--mute);margin-top:8px}
-.busy{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;place-items:center;color:#fff;font-size:18px;z-index:9}
-.busy.on{display:grid}
-.hide{display:none}
-@media(max-width:600px){.strip canvas{height:130px}}
+.hb{display:grid;grid-template-columns:4.2em minmax(0,1fr);gap:2px 8px;align-items:center;font-size:12px}
+.hb .row{display:flex;flex-direction:column;gap:2px}.hb .row i{display:block;height:7px;border-radius:2px;min-width:1px}
+.hb span{color:var(--mute);text-align:right;white-space:nowrap}
+.empty{border:2px dashed var(--line);border-radius:14px;padding:26px;text-align:center;color:var(--mute);background:var(--card);margin-top:18px}
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:6;background:var(--card);border-top:1px solid var(--line);display:flex;padding-bottom:env(safe-area-inset-bottom)}
+nav.tabs button{flex:1;border:0;background:none;color:var(--mute);font:500 12px "Noto Sans TC",sans-serif;min-height:58px;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px}
+nav.tabs button svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+nav.tabs button[aria-selected=true]{color:var(--A)}
+.tab{display:none}.tab.on{display:block}
+.busy{position:fixed;inset:0;background:rgba(0,0,0,.45);display:none;place-items:center;color:#fff;font-size:18px;z-index:9}.busy.on{display:grid}
+.hide{display:none!important}
+.toast{position:fixed;left:50%;bottom:90px;transform:translateX(-50%);background:#151a21;color:#fff;padding:8px 14px;border-radius:10px;font-size:14px;opacity:0;transition:opacity .2s;pointer-events:none;z-index:8}.toast.on{opacity:1}
+@media(prefers-reduced-motion:reduce){.toast{transition:none}}
+@media(max-width:600px){.ring{width:88px;height:88px}.hero p{font-size:16px}nav.tabs button{font-size:11px}}
 </style>
 </head>
 <body>
 <header><div class="wrap">
-  <div><h1>黑盒子分析</h1><p>Betaflight .bbl / .bfl / .zip，在手機上直接解析，檔案不會上傳</p></div>
-  <label class="btn" for="file">選擇黑盒子檔</label>
-  <input id="file" type="file" multiple accept=".bbl,.bfl,.txt,.zip,.BBL,.BFL" class="hide">
+  <h1>黑盒子分析</h1>
+  <label class="btn" for="file">開啟 log</label>
+  <input id="file" type="file" multiple class="hide">
 </div></header>
 
-<main class="wrap">
-  <section id="start">
-    <div class="empty" id="drop">
-      <h2>選一份或多份 log 開始</h2>
-      <p>可以一次選多個檔（含 zip）。會自動檢查：低頻震盪與觸發原因、馬達失步、重心偏移、電池壓降、陀螺儀雜訊、上鎖原因與失控保護。</p>
-      <p class="note">加到主畫面：在瀏覽器選單點「加到主畫面」，之後就能像 App 一樣打開。</p>
-    </div>
-  </section>
+<div class="picker hide" id="picker"><div class="wrap">
+  <div class="chips" id="logs"></div>
+  <p class="hint">點一下設為 A（橘），再點另一份設為 B（藍）做比較；再點一次取消。</p>
+</div></div>
 
-  <div id="out" class="hide">
-    <section>
-      <div class="chips" id="logs"></div>
-      <div class="sum" id="sum"></div>
-    </section>
-    <section>
-      <h2>診斷結果</h2>
-      <div class="finds" id="finds"></div>
-    </section>
-    <section>
-      <h2>飛行曲線</h2>
-      <div class="chips" id="panels"></div>
-      <div class="tools">
-        <button class="chip" data-z="0">全部</button><button class="chip" data-z="10">10 秒</button><button class="chip" data-z="2">2 秒</button><button class="chip" data-z="0.5">0.5 秒</button>
-        <input type="range" id="pos" min="0" max="1000" value="0" aria-label="時間位置"><output id="tw"></output>
-      </div>
-      <div id="strips"></div>
-      <p class="note">左右拖曳圖表可以移動時間；點診斷卡片上的「看這段」會直接跳過去。</p>
-    </section>
-    <section>
-      <h2>陀螺儀頻譜（未濾波）</h2>
-      <div class="strip spec"><div class="lab" id="speclab"></div><canvas id="spec"></canvas></div>
-      <p class="note">80 Hz 以上的峰通常是馬達、槳或機架造成的雜訊；越低越平越好。</p>
-    </section>
-    <section>
-      <h2>偵測到的震盪片段</h2><p class="note" style="margin-top:-6px">點一列可以跳到那一段曲線。</p>
-      <div class="scroll"><table id="bursts"></table></div>
-    </section>
-    <section>
-      <h2>關鍵設定</h2>
-      <div class="scroll"><table id="cfg"></table></div>
-    </section>
+<main class="wrap">
+  <div class="empty" id="empty">
+    <h2 style="margin-top:0">開啟任何一份 Betaflight 黑盒子 log</h2>
+    <p>支援 .bbl、.bfl、.txt、.zip，以及 Blackbox Explorer 匯出的 .csv。可以一次選多份，選兩份就能 A/B 比較調參前後。</p>
+    <p>首頁會用白話告訴你飛機哪裡有問題、該怎麼改；其他分頁是 PIDtoolbox 風格的工具：油門×頻率熱圖、步階響應、PID 誤差、濾波延遲、飛行統計。</p>
+    <label class="btn" for="file">選擇檔案</label>
   </div>
+
+  <section class="tab on" id="t-home"></section>
+  <section class="tab" id="t-view">
+    <h2>飛行曲線 <small style="font-size:14px;color:var(--mute)">（顯示 A）</small></h2>
+    <div class="chips" id="panels" style="flex-wrap:wrap"></div>
+    <div class="tools">
+      <button class="chip" data-z="0">全部</button><button class="chip" data-z="10">10 秒</button><button class="chip" data-z="2">2 秒</button><button class="chip" data-z="0.5">0.5 秒</button>
+      <input type="range" id="pos" min="0" max="1000" value="0" aria-label="時間位置"><output id="tw" style="white-space:nowrap;font-weight:600"></output>
+    </div>
+    <div id="strips"></div>
+    <p class="hint">左右拖曳圖表移動時間；紅色底是偵測到的非操作震盪。</p>
+  </section>
+  <section class="tab" id="t-spec">
+    <h2>油門 × 頻率</h2>
+    <div class="tools">
+      <select id="svar" aria-label="變數"></select>
+      <span class="chips" id="sax"></span>
+      <button class="chip" id="slow" aria-pressed="false">&lt;100 Hz</button>
+    </div>
+    <div id="heats"></div>
+    <div class="card"><div class="lab" id="splab"></div><div class="fig"><canvas id="spec1"></canvas></div>
+    <p class="hint">熱圖橫軸是頻率、縱軸是油門，越亮代表該油門下那個頻率的晃動越大。和「搖桿指令」比較：指令沒有、陀螺卻有的能量，就是雜訊、propwash 或震盪。</p></div>
+    <div class="card" id="delay"></div>
+  </section>
+  <section class="tab" id="t-step">
+    <h2>步階響應</h2>
+    <div id="steps"></div>
+    <p class="hint">用反卷積從搖桿指令和陀螺算出：打一個瞬間的桿量，飛機實際怎麼跟上。理想是快速到 1.0、小過衝（約 0–10%）、不回彈。過衝大 → D 不足或 P 太高；太慢 → 提高 P 或 feedforward。</p>
+  </section>
+  <section class="tab" id="t-err">
+    <h2>PID 誤差 vs 油門</h2>
+    <div class="tools"><span>只看搖桿低於</span><input type="range" id="maxst" min="50" max="500" step="10" value="100"><output id="maxsto" style="font-weight:600">100°/s</output></div>
+    <div id="errs"></div>
+    <p class="hint">PID 誤差＝搖桿指令 − 實際角速度。排除大動作翻滾後，誤差越小代表越穩、越跟手；用來客觀比較兩次調參。</p>
+  </section>
+  <section class="tab" id="t-stat">
+    <h2>飛行統計</h2>
+    <div id="stats"></div>
+  </section>
+  <section class="tab" id="t-set">
+    <h2>設定</h2>
+    <div class="tools"><button class="chip" id="onlydiff" aria-pressed="false">只顯示 A/B 不同</button></div>
+    <div class="card scroll"><table id="cfg"></table></div>
+  </section>
 </main>
+
+<nav class="tabs hide" id="tabs" role="tablist">
+  <button role="tab" data-t="home" aria-selected="true"><svg viewBox="0 0 24 24"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>分析</button>
+  <button role="tab" data-t="view"><svg viewBox="0 0 24 24"><path d="M3 17l5-6 4 4 5-8 4 5"/></svg>曲線</button>
+  <button role="tab" data-t="spec"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15h4l3-6 4 9 3-5h4"/></svg>頻譜</button>
+  <button role="tab" data-t="step"><svg viewBox="0 0 24 24"><path d="M3 20h4V8h4v4h10"/></svg>步階</button>
+  <button role="tab" data-t="err"><svg viewBox="0 0 24 24"><path d="M5 20V10M10 20V4M15 20v-7M20 20v-4"/></svg>誤差</button>
+  <button role="tab" data-t="stat"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>統計</button>
+  <button role="tab" data-t="set"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg>設定</button>
+</nav>
 <div class="busy" id="busy">解析中…</div>
+<div class="toast" id="toast"></div>
+
 <script>
 // ---- Betaflight blackbox decoder ----
 const BB = (() => {
@@ -283,6 +322,63 @@ const BB = (() => {
 })();
 if (typeof module !== 'undefined') module.exports = BB;
 
+// ---- CSV import (Blackbox Explorer / blackbox_decode) + field normalisation ----
+const CSVL = (() => {
+  function splitRow(line) {
+    const out = []; let cur = '', q = false;
+    for (let i = 0; i < line.length; i++) { const c = line[i];
+      if (q) { if (c === '"') { if (line[i + 1] === '"') { cur += '"'; i++; } else q = false; } else cur += c; }
+      else if (c === '"') q = true; else if (c === ',') { out.push(cur.trim()); cur = ''; } else cur += c; }
+    out.push(cur.trim()); return out;
+  }
+  function parse(text) {
+    const lines = text.split(/\r?\n/); const hdr = {}; let h = -1;
+    for (let i = 0; i < Math.min(lines.length, 2000); i++) {
+      const r = splitRow(lines[i]); if (!r[0]) continue;
+      if (/^loopIteration$/i.test(r[0]) || r.some(c => /^time/i.test(c) && r.length > 5)) { h = i; break; }
+      if (r.length >= 2) hdr[r[0]] = r.slice(1).join(',');
+    }
+    if (h < 0) throw new Error('CSV 裡找不到欄位標題列（需要 loopIteration / time 欄位）');
+    const raw = splitRow(lines[h]), names = raw.map(c => c.replace(/\s*\(.*?\)\s*$/, '').trim());
+    const unit = raw.map(c => (c.match(/\((.*?)\)\s*$/) || [])[1] || '');
+    const cols = names.map(() => []); let n = 0;
+    for (let i = h + 1; i < lines.length; i++) {
+      if (!lines[i]) continue; const r = lines[i].split(','); if (r.length < names.length - 1) continue;
+      for (let k = 0; k < names.length; k++) cols[k].push(parseFloat(r[k]));
+      n++;
+    }
+    const F = {}; let time = null;
+    names.forEach((nm, k) => {
+      let a = cols[k], u = unit[k].toLowerCase(), sc = 1;
+      if (nm === 'vbatLatest' && u === 'v') sc = 100; if (nm === 'amperageLatest' && u === 'a') sc = 100;
+      if (nm === 'time') { time = Float64Array.from(a, v => u === 'ms' ? v * 1000 : u === 's' ? v * 1e6 : v); }
+      F[nm] = Int32Array.from(a, v => Math.round((isNaN(v) ? 0 : v) * sc));
+    });
+    if (!time) throw new Error('CSV 沒有 time 欄位');
+    const t0 = time[0], t = Float64Array.from(time, v => (v - t0) / 1e6);
+    return { hdr, names, F, t, rows: n, events: [], slow: [], slowNames: [], gps: [], corrupt: 0, csv: true };
+  }
+  // make sure the fields the analysis needs exist
+  function prep(L) {
+    const F = L.F, n = L.rows, z = () => new Int32Array(n);
+    L.missing = [];
+    if (!F['rcCommand[3]']) {
+      const ms = [0, 1, 2, 3, 4, 5, 6, 7].map(k => F[`motor[${k}]`]).filter(Boolean);
+      const mo = (L.hdr.motorOutput || '0,2047').split(',').map(Number);
+      F['rcCommand[3]'] = Int32Array.from({ length: n }, (_, i) => ms.length ? 1000 + Math.round((ms.reduce((s, a) => s + a[i], 0) / ms.length - mo[0]) / (mo[1] - mo[0]) * 1000) : 1000);
+      L.missing.push('油門（改用馬達平均估算）');
+    }
+    for (let ax = 0; ax < 3; ax++) {
+      if (!F[`gyroADC[${ax}]`]) { F[`gyroADC[${ax}]`] = z(); L.missing.push(`gyroADC[${ax}]`); }
+      if (!F[`setpoint[${ax}]`]) { F[`setpoint[${ax}]`] = F[`rcCommand[${ax}]`] ? Int32Array.from(F[`rcCommand[${ax}]`], v => v * 2) : z(); L.missing.push(`setpoint[${ax}]`); }
+      for (const k of ['axisP', 'axisI', 'axisD']) if (!F[`${k}[${ax}]`] && !(k === 'axisD' && ax === 2)) F[`${k}[${ax}]`] = z();
+    }
+    return L;
+  }
+  return { parse, prep };
+})();
+if (typeof module !== 'undefined') module.exports = CSVL;
+
 // ---- analysis ----
 const AN = (() => {
   const DISARM = { 0: '解鎖被禁止', 1: '失控保護 (failsafe)', 2: '油門逾時', 3: '搖桿上鎖', 4: '開關上鎖', 5: '墜機保護', 6: '防暴衝 (runaway takeoff)', 7: 'GPS 救援', 8: '序列指令', 9: '降落上鎖', 255: '系統' };
@@ -430,13 +526,219 @@ const AN = (() => {
 })();
 if (typeof module !== 'undefined') module.exports = AN;
 
+// ---- PIDtoolbox-style tools: spectra, step response, PID error, stats, delay, narrative ----
+const PT = (() => {
+  const { fftc, hann } = (() => {
+    function fftc(re, im) { const n = re.length; for (let i = 1, j = 0; i < n; i++) { let b = n >> 1; for (; j & b; b >>= 1) j ^= b; j ^= b; if (i < j) { let t = re[i]; re[i] = re[j]; re[j] = t; t = im[i]; im[i] = im[j]; im[j] = t; } }
+      for (let len = 2; len <= n; len <<= 1) { const a = -2 * Math.PI / len, wr = Math.cos(a), wi = Math.sin(a), h = len >> 1;
+        for (let i = 0; i < n; i += len) { let cr = 1, ci = 0; for (let j = 0; j < h; j++) { const p = i + j, q = p + h, vr = re[q] * cr - im[q] * ci, vi = re[q] * ci + im[q] * cr; re[q] = re[p] - vr; im[q] = im[p] - vi; re[p] += vr; im[p] += vi; const t = cr * wr - ci * wi; ci = cr * wi + ci * wr; cr = t; } } } }
+    const cache = {}; const hann = N => cache[N] || (cache[N] = Float64Array.from({ length: N }, (_, i) => 0.5 - 0.5 * Math.cos(2 * Math.PI * i / (N - 1))));
+    return { fftc, hann };
+  })();
+  const AXN = ['Roll', 'Pitch', 'Yaw'];
+  function fsOf(L) { return (L.rows - 1) / (L.t[L.rows - 1] - L.t[0]); }
+  function flying(L) { const thr = L.F['rcCommand[3]'], n = L.rows; let a = 0, b = n - 1; while (a < n && thr[a] <= 1050) a++; while (b > 0 && thr[b] <= 1050) b--; return [a, Math.max(a, b)]; }
+  function thrPct(L) { const s = L.F['setpoint[3]'], r = L.F['rcCommand[3]']; return s ? i => Math.max(0, Math.min(100, s[i] / 10)) : i => Math.max(0, Math.min(100, (r[i] - 1000) / 10)); }
+  // variable getters
+  const VARS = {
+    gyroUnfilt: { name: '陀螺（未濾波）', get: (L, ax) => L.F[`gyroUnfilt[${ax}]`] || L.F[`gyroADC[${ax}]`] },
+    gyro: { name: '陀螺（濾波後）', get: (L, ax) => L.F[`gyroADC[${ax}]`] },
+    dterm: { name: 'D 項', get: (L, ax) => L.F[`axisD[${ax}]`] },
+    error: { name: 'PID 誤差', get: (L, ax) => { const s = L.F[`setpoint[${ax}]`], g = L.F[`gyroADC[${ax}]`]; if (!s) return null; const e = new Float64Array(L.rows); for (let i = 0; i < L.rows; i++) e[i] = s[i] - g[i]; return e; } },
+    setpoint: { name: '搖桿指令', get: (L, ax) => L.F[`setpoint[${ax}]`] },
+    motor: { name: '馬達輸出', get: (L, ax) => L.F[`motor[${ax}]`] },
+  };
+  // throttle x frequency heatmap
+  function heat(L, varKey, ax, low) {
+    const x = VARS[varKey].get(L, ax); if (!x) return null;
+    const fs = fsOf(L), N = low ? 1024 : 256, hop = N >> 2, w = hann(N), tp = thrPct(L), [a, b] = flying(L);
+    const TB = 50, fmax = low ? 100 : fs / 2, nf = Math.min(N / 2, Math.floor(fmax / (fs / N)) + 1);
+    const acc = new Float64Array(TB * nf), cnt = new Float64Array(TB), re = new Float64Array(N), im = new Float64Array(N);
+    for (let s = a; s + N <= b; s += hop) {
+      let m = 0, th = 0; for (let i = 0; i < N; i++) { m += x[s + i]; th += tp(s + i); } m /= N; th /= N;
+      for (let i = 0; i < N; i++) { re[i] = (x[s + i] - m) * w[i]; im[i] = 0; }
+      fftc(re, im); const tb = Math.min(TB - 1, Math.floor(th / 100 * TB)); cnt[tb]++;
+      for (let k = 0; k < nf; k++) acc[tb * nf + k] += Math.sqrt(re[k] * re[k] + im[k] * im[k]) * 2 / (N * 0.5);
+    }
+    for (let t = 0; t < TB; t++) if (cnt[t]) for (let k = 0; k < nf; k++) acc[t * nf + k] /= cnt[t];
+    // fill sparse throttle bins from neighbours (within 3 bins) so the map reads continuously
+    const has = Array.from(cnt, c => c > 0), fill = new Float64Array(TB);
+    for (let t = 0; t < TB; t++) if (!has[t]) { let lo = -1, hi = -1; for (let d = 1; d <= 3; d++) { if (lo < 0 && t - d >= 0 && has[t - d]) lo = t - d; if (hi < 0 && t + d < TB && has[t + d]) hi = t + d; }
+      if (lo >= 0 && hi >= 0) { const w = (t - lo) / (hi - lo); for (let k = 0; k < nf; k++) acc[t * nf + k] = acc[lo * nf + k] * (1 - w) + acc[hi * nf + k] * w; fill[t] = 1; } }
+    for (let t = 0; t < TB; t++) if (fill[t]) cnt[t] = 0.5;
+    return { z: acc, TB, nf, df: fs / N, cnt, fmax: (nf - 1) * fs / N };
+  }
+  // averaged 1-D spectrum (amplitude) on flying segment
+  function spectrum(L, varKey, ax, N = 2048) {
+    const x = VARS[varKey].get(L, ax); if (!x) return null;
+    const fs = fsOf(L), w = hann(N), [a, b] = flying(L), P = new Float64Array(N / 2), re = new Float64Array(N), im = new Float64Array(N); let c = 0;
+    for (let s = a; s + N <= b; s += N >> 1) { let m = 0; for (let i = 0; i < N; i++) m += x[s + i]; m /= N; for (let i = 0; i < N; i++) { re[i] = (x[s + i] - m) * w[i]; im[i] = 0; } fftc(re, im); for (let k = 0; k < N / 2; k++) P[k] += re[k] * re[k] + im[k] * im[k]; c++; }
+    for (let k = 0; k < N / 2; k++) P[k] = c ? Math.sqrt(P[k] / c) * 2 / (N * 0.5) : 0;
+    return { P, df: fs / N };
+  }
+  // step response via Wiener deconvolution (PIDtoolbox style)
+  function step(L, ax, opts = {}) {
+    const sp = L.F[`setpoint[${ax}]`], g = L.F[`gyroADC[${ax}]`]; if (!sp || !g) return null;
+    const fs = fsOf(L), N = 1 << Math.round(Math.log2(fs * 2)), hop = N >> 2, w = hann(N), [a, b] = flying(L);
+    const keep = Math.round(0.5 * fs), minIn = opts.minIn || 20, maxIn = opts.maxIn || 500;
+    const sr = new Float64Array(N), si = new Float64Array(N), gr = new Float64Array(N), gi = new Float64Array(N), hr = new Float64Array(N), hi = new Float64Array(N);
+    const sum = new Float64Array(keep); let n = 0; const all = [];
+    for (let s = a; s + N <= b; s += hop) {
+      let mx = 0; for (let i = 0; i < N; i++) mx = Math.max(mx, Math.abs(sp[s + i]));
+      if (mx < minIn || mx > maxIn) continue;
+      for (let i = 0; i < N; i++) { sr[i] = sp[s + i] * w[i]; si[i] = 0; gr[i] = g[s + i] * w[i]; gi[i] = 0; }
+      fftc(sr, si); fftc(gr, gi);
+      let pw = 0; for (let k = 0; k < N; k++) pw += sr[k] * sr[k] + si[k] * si[k]; const reg = pw / N * 0.0001 + 1e-9;
+      for (let k = 0; k < N; k++) { const d = sr[k] * sr[k] + si[k] * si[k] + reg; hr[k] = (gr[k] * sr[k] + gi[k] * si[k]) / d; hi[k] = -(gr[k] * si[k] - gi[k] * sr[k]) / d; }
+      // inverse FFT via conj trick
+      for (let k = 0; k < N; k++) hi[k] = -hi[k]; fftc(hr, hi);
+      const st = new Float64Array(keep); let c = 0; for (let i = 0; i < keep; i++) { c += hr[i] / N; st[i] = c; }
+      let ss = 0; const q = Math.round(0.2 * fs); for (let i = q; i < keep; i++) ss += st[i]; ss /= (keep - q);
+      if (ss < 0.5 || ss > 3) continue;
+      for (let i = 0; i < keep; i++) st[i] /= ss;
+      all.push(st); for (let i = 0; i < keep; i++) sum[i] += st[i]; n++;
+    }
+    if (!n) return { n: 0 };
+    const y = sum.map(v => v / n), dt = 1000 / fs;
+    let pk = 0, pki = 0; const pkEnd = Math.min(keep, Math.round(0.15 * fs)); for (let i = 0; i < pkEnd; i++) if (y[i] > pk) { pk = y[i]; pki = i; }
+    let ss = 0; const q = Math.round(0.2 * fs); for (let i = q; i < keep; i++) ss += y[i]; ss /= (keep - q);
+    let t50 = 0; for (let i = 0; i < keep; i++) if (y[i] >= 0.5 * ss) { t50 = i * dt; break; }
+    let t90 = 0; for (let i = 0; i < keep; i++) if (y[i] >= 0.9 * ss) { t90 = i * dt; break; }
+    return { y, dt, n, peak: pk / ss, peakT: pki * dt, t50, t90, ss };
+  }
+  // mean |PID error| vs throttle bands
+  function errVsThr(L, maxStick = 100) {
+    const tp = thrPct(L), [a, b] = flying(L), bands = 10, out = [];
+    for (let ax = 0; ax < 3; ax++) {
+      const s = L.F[`setpoint[${ax}]`], g = L.F[`gyroADC[${ax}]`], sum = new Float64Array(bands), c = new Float64Array(bands); let ts = 0, tc = 0;
+      for (let i = a; i <= b; i++) { if (Math.abs(s[i]) > maxStick) continue; const e = Math.abs(s[i] - g[i]), k = Math.min(bands - 1, Math.floor(tp(i) / 10)); sum[k] += e; c[k]++; ts += e; tc++; }
+      out.push({ ax, bands: Array.from(sum, (v, k) => c[k] > 50 ? v / c[k] : null), mean: tc ? ts / tc : 0 });
+    }
+    return out;
+  }
+  // filter delay by cross-correlation (ms)
+  function xdelay(x, y, a, b, maxLag) {
+    let best = -1e18, bl = 0; const cs = [];
+    for (let L = 0; L <= maxLag; L++) { let s = 0; for (let i = a; i + L <= b; i++) s += x[i] * y[i + L]; cs.push(s); if (s > best) { best = s; bl = L; } }
+    if (bl > 0 && bl < maxLag) { const y0 = cs[bl - 1], y1 = cs[bl], y2 = cs[bl + 1], d = (y0 - 2 * y1 + y2); if (d) return bl + 0.5 * (y0 - y2) / d; }
+    return bl;
+  }
+  function delays(L) {
+    const fs = fsOf(L), [a, b] = flying(L), out = {}, ml = Math.round(fs * 0.02), e = Math.min(b, a + Math.round(fs * 60));
+    const gu = L.F['gyroUnfilt[0]'], gf = L.F['gyroADC[0]'], d = L.F['axisD[0]'];
+    if (gu && gf) out.gyro = xdelay(gu, gf, a, e, ml) / fs * 1000;
+    if (d && gf) { const dg = new Float64Array(L.rows); for (let i = 1; i < L.rows; i++) dg[i] = -(gf[i] - gf[i - 1]); out.dterm = xdelay(dg, d, a, e, ml) / fs * 1000 + (out.gyro || 0); }
+    return out;
+  }
+  function stats(L) {
+    const [a, b] = flying(L), tp = thrPct(L), nm = [0, 1, 2, 3, 4, 5, 6, 7].filter(k => L.F[`motor[${k}]`]).length;
+    const mo = (L.hdr.motorOutput || '0,2047').split(',').map(Number), lo = mo[0], hi = mo[1];
+    const thrH = new Float64Array(20), motH = [...Array(nm)].map(() => new Float64Array(20)), stick = [0, 1, 2].map(() => new Float64Array(20));
+    let full = 0, n = 0, thrSum = 0;
+    for (let i = a; i <= b; i++) {
+      const t = tp(i); thrH[Math.min(19, Math.floor(t / 5))]++; thrSum += t; n++; if (t > 95) full++;
+      for (let k = 0; k < nm; k++) motH[k][Math.min(19, Math.max(0, Math.floor((L.F[`motor[${k}]`][i] - lo) / (hi - lo) * 20)))]++;
+      for (let ax = 0; ax < 3; ax++) stick[ax][Math.min(19, Math.floor(Math.abs(L.F[`setpoint[${ax}]`][i]) / 50))]++;
+    }
+    const norm = h => Array.from(h, v => n ? v / n * 100 : 0);
+    return { thrH: norm(thrH), motH: motH.map(norm), stick: stick.map(norm), thrMean: n ? thrSum / n : 0, fullPct: n ? full / n * 100 : 0, flyDur: (L.t[b] - L.t[a]) };
+  }
+  // ---- human-friendly narrative ----
+  function grade(v, good, bad) { return v <= good ? 'good' : v >= bad ? 'bad' : 'mid'; }
+  function insight(L, R, X) {
+    const h = L.hdr, s = [], cli = [], cards = [];
+    const steps = X.steps, err = X.err, pure = R.bursts.filter(b => !b.stick);
+    const ag = Number(h.anti_gravity_p_gain || 0), simp = Number(h.simplified_pids_mode || 0) > 0;
+    const pid = ax => (h[['rollPID', 'pitchPID', 'yawPID'][ax]] || '0,0,0').split(',').map(Number);
+    // scores 0-100
+    const trk = (err[0].mean + err[1].mean) / 2;
+    const scT = Math.max(0, Math.min(100, Math.round(100 - (trk - 1.5) * 12)));
+    const oscAmp = pure.length ? Math.max(...pure.map(b => b.amp)) : 0;
+    const scO = Math.max(0, Math.min(100, Math.round(100 - pure.length * 6 - oscAmp * 0.3)));
+    const nz = Math.max(...R.noise.slice(0, 2).map(n => n.rms), 0);
+    const scN = Math.max(0, Math.min(100, Math.round(100 - (nz - 3) * 6)));
+    const b = R.stats.batt, bal = R.stats.balance;
+    let scH = 100; if (bal) scH -= Math.min(40, Math.abs(bal.rf - 1) * 150 + Math.abs(bal.lr - 1) * 150); if (R.stats.desync && R.stats.desync.length) scH -= 40; if (b && b.vmin / b.cells < 3.0) scH -= 20; scH = Math.max(0, Math.round(scH));
+    cards.push({ k: '追蹤精準度', v: scT, d: `平均誤差 ${trk.toFixed(1)}°/s` }, { k: '平順度', v: scO, d: pure.length ? `${pure.length} 次非操作震盪` : '沒有震盪' }, { k: '雜訊', v: scN, d: `${nz.toFixed(1)}°/s RMS` }, { k: '機體與電力', v: scH, d: bal ? `前後比 ${bal.rf.toFixed(2)}` : '—' });
+    const total = Math.round((scT + scO + scN + scH) / 4);
+    // headline
+    let head;
+    if (pure.length && scO < 75) head = '這台飛機整體飛得不錯，但有一個明顯的毛病：油門變化時會抖。';
+    else if (total >= 80) head = '這次飛行狀況很健康，調參大致到位。';
+    else if (total >= 60) head = '整體可以飛，但有幾個地方值得調整，會讓手感更穩更跟手。';
+    else head = '這份 log 顯示飛機有幾個比較明顯的問題，建議先處理再繼續調參。';
+    // main issue paragraph
+    if (pure.length) {
+      const byAx = [0, 1, 2].map(a => pure.filter(x => x.ax === a).length), main = byAx.indexOf(Math.max(...byAx));
+      const fr = pure.map(x => x.freq).sort((a, c) => a - c)[pure.length >> 1], o = R.osc[main], ratio = o && o.steady ? o.chg / o.steady : 0;
+      let p = `最需要先處理的是 ${AXN[main]} 軸大約 ${fr.toFixed(0)} Hz 的晃動，這次飛行出現 ${pure.length} 次，最大到 ±${oscAmp.toFixed(0)}°/s。你在影片裡可能會看到推油或收油時畫面「抖一下」或左右搖擺。`;
+      if (ratio > 1.8) p += ` 它幾乎都發生在油門變化的時候（強度是穩定油門時的 ${ratio.toFixed(1)} 倍），這通常是 anti-gravity 在油門變化時把 P 加大，把本來就接近邊緣的 ${AXN[main]} 推過頭。`;
+      s.push({ t: '先處理這個', p });
+      if (ratio > 1.8 && ag > 0) cli.push({ c: `set anti_gravity_p_gain = ${ag > 50 ? 50 : 0}`, why: '降低油門變化時額外加的 P，先單獨改這一項測試' });
+      const P = pid(main)[0]; if (P) cli.push({ c: `set p_${['roll', 'pitch', 'yaw'][main]} = ${Math.round(P * 0.88)}`, why: `${AXN[main]} P 降約 12%，如果上一條沒完全解決再加這條` });
+    }
+    // step response paragraph
+    const sr = steps.map((x, ax) => x && x.n ? { ax, ...x } : null).filter(Boolean).filter(x => x.ax < 2);
+    if (sr.length) {
+      const parts = sr.map(x => `${AXN[x.ax]} 反應時間 ${x.t50.toFixed(0)} ms、${x.peak > 1.02 ? '過衝 ' + ((x.peak - 1) * 100).toFixed(0) + '%' : '沒有過衝'}`);
+      let p = `從步階響應來看：${parts.join('；')}。`;
+      if (X.angle > 0.5) p += ' （這次大多在自穩模式飛，指令是由角度控制器產生的，步階響應的參考價值比手動模式低，建議用手動模式的 log 來判斷 P/D。）';
+      const over = sr.filter(x => x.peak > 1.15), slow = sr.filter(x => x.t50 > 35), flat = sr.filter(x => x.peak < 0.97);
+      if (over.length) { p += ` ${over.map(x => AXN[x.ax]).join('、')} 過衝偏多，打桿停下來時會有一點回彈，可以稍微提高 D 或降低 P。`; over.forEach(x => { const D = pid(x.ax)[2]; if (D) cli.push({ c: `set d_${['roll', 'pitch'][x.ax]} = ${Math.round(D * 1.1)}`, why: `${AXN[x.ax]} 過衝 ${((x.peak - 1) * 100).toFixed(0)}%，D 提高約 10% 增加阻尼` }); }); }
+      else if (slow.length) p += ` ${slow.map(x => AXN[x.ax]).join('、')} 反應偏慢，如果你覺得不夠跟手，可以提高 feedforward。`;
+      else if (flat.length) p += ' 響應有點軟，到不了指令的速度，I 或 feedforward 可能偏低。';
+      else p += ' 這個響應形狀很漂亮，跟手又不回彈，P/D 的比例是合適的。';
+      s.push({ t: '跟手程度', p });
+    }
+    // noise
+    s.push({ t: '雜訊與濾波', p: nz < 8 ? `陀螺儀雜訊很低（${nz.toFixed(1)}°/s），表示槳、馬達、機架都沒有高頻問題，濾波也夠用${X.delay.gyro ? `，目前陀螺濾波延遲約 ${X.delay.gyro.toFixed(1)} ms` : ''}。這部分不用動。` : `陀螺儀雜訊偏高（${nz.toFixed(1)}°/s），主峰在 ${R.noise.map(n => n.peak.toFixed(0) + ' Hz').join('、')}。先檢查槳有沒有撞歪、馬達有沒有異音、螺絲有沒有鬆，再考慮加濾波。` });
+    // body / power
+    const bp = [];
+    if (bal && (bal.rf > 1.12 || bal.rf < 0.89)) bp.push(`重心偏${bal.rf > 1 ? '後' : '前'}，${bal.rf > 1 ? '後' : '前'}面兩顆馬達平常就多出 ${(Math.abs(bal.rf - 1) * 100).toFixed(0)}% 的力氣，翻滾和急停時可用的餘量會變少，把電池往${bal.rf > 1 ? '前' : '後'}挪一點就能改善`);
+    if (R.stats.desync && R.stats.desync.length) bp.push(`偵測到 ${R.stats.desync.length} 次疑似馬達失步，這個要優先檢查馬達和電調`);
+    else bp.push('四顆馬達都跟得上指令，沒有失步');
+    if (b) bp.push(b.vmin / b.cells < 3.0 ? `電池最低掉到 ${(b.vmin / b.cells).toFixed(2)} V/cell，壓降偏深，猛推時可能會突然沒力` : `電池表現正常（最低 ${(b.vmin / b.cells).toFixed(2)} V/cell）`);
+    s.push({ t: '機體與電力', p: bp.join('；') + '。' });
+    // disarm
+    const fsBad = R.findings.find(f => f.lvl === 'bad' && /failsafe|訊號|上鎖原因/.test(f.title));
+    if (fsBad) s.unshift({ t: '安全', p: fsBad.body });
+    if (simp && cli.some(c => /^set [pd]_/.test(c.c))) cli.push({ c: 'set simplified_pids_mode = OFF', why: '你開著簡易調參滑桿，直接改 P/D 前要先關掉，否則之後動滑桿會被覆蓋（或改用滑桿調）' });
+    if (cli.length) cli.push({ c: 'save', why: '儲存並重新開機' });
+    return { head, total, cards, sections: s, cli };
+  }
+  function compare(A, B) {
+    const out = [];
+    const ea = (A.X.err[0].mean + A.X.err[1].mean) / 2, eb = (B.X.err[0].mean + B.X.err[1].mean) / 2;
+    const d = (eb - ea) / ea * 100;
+    out.push(`追蹤誤差：B 比 A ${d < 0 ? '降低' : '增加'} ${Math.abs(d).toFixed(0)}%（${ea.toFixed(1)} → ${eb.toFixed(1)}°/s）${Math.abs(d) < 5 ? '，差不多' : d < 0 ? '，B 比較跟手' : '，A 比較跟手'}。`);
+    const pa = A.R.bursts.filter(b => !b.stick), pb = B.R.bursts.filter(b => !b.stick);
+    const ma = pa.length ? Math.max(...pa.map(b => b.amp)) : 0, mb = pb.length ? Math.max(...pb.map(b => b.amp)) : 0;
+    out.push(`非操作震盪：A ${pa.length} 次（最大 ±${ma.toFixed(0)}°/s），B ${pb.length} 次（最大 ±${mb.toFixed(0)}°/s）${pb.length < pa.length && mb < ma ? '，B 改善了' : pb.length > pa.length || mb > ma * 1.2 ? '，B 變差了' : ''}。`);
+    for (let ax = 0; ax < 2; ax++) { const sa = A.X.steps[ax], sb = B.X.steps[ax]; if (sa && sb && sa.n && sb.n) out.push(`${AXN[ax]} 步階：過衝 ${((sa.peak - 1) * 100).toFixed(0)}% → ${((sb.peak - 1) * 100).toFixed(0)}%，反應 ${sa.t50.toFixed(0)} → ${sb.t50.toFixed(0)} ms。`); }
+    if ((A.X.angle > 0.5) !== (B.X.angle > 0.5)) out.push(`注意：${A.X.angle > 0.5 ? 'A' : 'B'} 主要是自穩模式、${A.X.angle > 0.5 ? 'B' : 'A'} 是手動模式，飛法不同，步階響應和誤差只能粗略比較。`);
+    const keys = Object.keys(A.L.hdr).filter(k => !/^(Field|Log start|vbatref|H |Product|Data version|DeviceUID|Firmware date)/.test(k) && A.L.hdr[k] !== B.L.hdr[k] && B.L.hdr[k] != null && !/rc_smoothing_(rx|active)/.test(k));
+    if (keys.length) out.push('設定差異：' + keys.slice(0, 12).map(k => `${k} ${A.L.hdr[k]} → ${B.L.hdr[k]}`).join('；') + '。');
+    return out;
+  }
+  function angleShare(L) { const sl = L.slow, i = L.slowNames.indexOf('flightModeFlags'); if (i < 0 || !sl.length) return 0; return sl.filter(r => r[i + 1] & 2).length / sl.length; }
+  function run(L) {
+    const steps = [0, 1, 2].map(ax => step(L, ax));
+    return { steps, err: errVsThr(L), delay: delays(L), stats: stats(L), angle: angleShare(L) };
+  }
+  return { VARS, heat, spectrum, step, errVsThr, delays, stats, insight, compare, run, AXN };
+})();
+if (typeof module !== 'undefined') module.exports = PT;
+
 {
 const $ = id => document.getElementById(id);
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const probe = document.createElement('i'); probe.style.display = 'none'; document.body.appendChild(probe);
 const css = n => { probe.style.color = `var(${n})`; return getComputedStyle(probe).color || '#888'; };
-let logs = [], cur = 0, win = [0, 0];
-const C = ['#ff5a1f', '#2563eb', '#22a35a', '#a855f7', '#e5383b', '#0ea5e9', '#eab308', '#64748b'];
+const CA = '#ff6a1f', CB = '#2f6bff', C = ['#ff6a1f', '#2f6bff', '#22a35a', '#a855f7', '#e5383b', '#0ea5e9', '#eab308', '#64748b'];
+const AX = ['Roll', 'Pitch', 'Yaw'];
+let logs = [], A = -1, B = -1, tab = 'home', win = [0, 0], specAx = 0, specLow = false;
+const toast = m => { const t = $('toast'); t.textContent = m; t.classList.add('on'); clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('on'), 1600); };
+
 const PANELS = [
   { id: 'r', name: 'Roll', on: 1, ser: L => [['setpoint[0]', '指令', 'ink'], ['gyroADC[0]', '陀螺', C[0]]], unit: '°/s' },
   { id: 'p', name: 'Pitch', on: 1, ser: L => [['setpoint[1]', '指令', 'ink'], ['gyroADC[1]', '陀螺', C[0]]], unit: '°/s' },
@@ -450,6 +752,7 @@ const PANELS = [
   { id: 'g', name: '加速度', on: 0, ser: L => [0, 1, 2].map(k => [`accSmooth[${k}]`, 'XYZ'[k], C[k + 1], v => v / Number(L.hdr.acc_1G || 2048)]), unit: 'g' },
 ];
 try { const s = JSON.parse(localStorage.getItem('bbPanels') || 'null'); if (s) PANELS.forEach(p => p.on = s.includes(p.id) ? 1 : 0); } catch (e) {}
+
 
 async function unzip(buf) {
   const u8 = new Uint8Array(buf), dv = new DataView(buf), out = [];
@@ -470,130 +773,219 @@ async function unzip(buf) {
   return out;
 }
 
+
+
 async function load(files) {
   $('busy').classList.add('on'); await new Promise(r => setTimeout(r, 30));
-  const errs = []; logs = [];
+  const errs = []; const added = [];
   for (const f of files) {
     try {
-      const buf = await f.arrayBuffer(); let items = [{ name: f.name, u8: new Uint8Array(buf) }];
-      if (new Uint8Array(buf, 0, 2)[0] === 0x50 && new Uint8Array(buf, 0, 2)[1] === 0x4b) items = await unzip(buf);
+      const buf = await f.arrayBuffer(); const head = new Uint8Array(buf, 0, Math.min(4, buf.byteLength));
+      let items = [{ name: f.name, u8: new Uint8Array(buf) }];
+      if (head[0] === 0x50 && head[1] === 0x4b) items = await unzip(buf);
       for (const it of items) {
-        const parts = BB.splitLogs(it.u8);
-        if (!parts.length) { errs.push(it.name + '：不是黑盒子檔'); continue; }
-        for (let k = 0; k < parts.length; k++) {
-          await new Promise(r => setTimeout(r, 0));
-          try { const L = BB.decode(parts[k]); if (L.rows < 100) continue; logs.push({ name: it.name + (parts.length > 1 ? ` #${k + 1}` : ''), L, R: AN.analyze(L) }); }
-          catch (e) { errs.push(it.name + '：' + e.message); }
-        }
+        await new Promise(r => setTimeout(r, 0));
+        try {
+          let Ls = [];
+          if (/\.csv$/i.test(it.name)) Ls = [CSVL.parse(new TextDecoder().decode(it.u8))];
+          else { const parts = BB.splitLogs(it.u8); if (!parts.length) { errs.push(it.name + '：不是 Betaflight 黑盒子檔'); continue; } Ls = parts.map(p => { try { return BB.decode(p); } catch (e) { errs.push(it.name + '：' + e.message); return null; } }).filter(Boolean); }
+          Ls.forEach((L, k) => {
+            if (L.rows < 2000) return; CSVL.prep(L);
+            const R = AN.analyze(L), X = PT.run(L);
+            added.push({ name: it.name.replace(/\.(bbl|bfl|txt|csv)$/i, '') + (Ls.length > 1 ? ` #${k + 1}` : ''), L, R, X, I: PT.insight(L, R, X) });
+          });
+        } catch (e) { errs.push(it.name + '：' + e.message); }
       }
     } catch (e) { errs.push(f.name + '：' + e.message); }
   }
   $('busy').classList.remove('on');
-  if (!logs.length) { $('drop').querySelector('p').textContent = '沒有讀到可用的飛行紀錄。' + errs.join('；'); return; }
-  $('start').classList.add('hide'); $('out').classList.remove('hide');
-  $('logs').innerHTML = logs.map((l, i) => `<button class="chip" data-i="${i}" aria-pressed="${i === 0}">${esc(l.name)} · ${l.R.dur.toFixed(0)} 秒</button>`).join('');
-  show(0);
+  if (!added.length) { toast('沒有讀到可用的飛行紀錄'); if (!logs.length) $('empty').querySelector('p').textContent = '沒有讀到可用的飛行紀錄（太短或格式不符）。' + errs.join('；'); return; }
+  logs = logs.concat(added);
+  if (A < 0) A = logs.length - added.length;
+  if (errs.length) toast(errs[0]);
+  $('empty').classList.add('hide'); $('picker').classList.remove('hide'); $('tabs').classList.remove('hide');
+  renderPicker(); render();
 }
 
-function show(i) {
-  cur = i; const { L, R } = logs[i], h = L.hdr;
-  document.querySelectorAll('#logs .chip').forEach(b => b.setAttribute('aria-pressed', b.dataset.i == i));
-  const b = R.stats.batt;
-  const sum = [
-    ['機名', h['Craft name'] || '—'], ['韌體', (h['Firmware revision'] || '').replace(/\(.*?\)/, '').trim() || '—'],
-    ['飛行時間', R.dur.toFixed(1) + ' 秒'], ['上鎖原因', R.info.disarm],
-    ['電池', b ? `${b.cells}S ${b.vs.toFixed(1)}→${b.vend.toFixed(1)} V` : '—'], ['最低電壓', b ? `${(b.vmin / b.cells).toFixed(2)} V/cell` : '—'],
-    ['峰值電流', b ? b.imax.toFixed(0) + ' A' : '—'], ['記錄頻率', R.fs.toFixed(0) + ' Hz'],
-  ];
-  $('sum').innerHTML = sum.map(([k, v]) => `<div><span>${esc(k)}</span><b title="${esc(v)}">${esc(v)}</b></div>`).join('');
-  $('finds').innerHTML = R.findings.map((f, k) => `<div class="f ${f.lvl}"><h3>${esc(f.title)}</h3><p>${esc(f.body)}</p>${f.jump != null ? `<button class="btn sec" data-j="${f.jump}">看這段</button>` : ''}</div>`).join('');
-  const AX = AN.AXN;
-  const br = R.bursts;
-  $('bursts').innerHTML = br.length ? '<tr><th>軸</th><th>時間 (秒)</th><th>頻率</th><th>幅度</th><th>油門</th><th>類型</th></tr>' + br.map(x => `<tr class="go" data-j="${x.t0 - 0.3}" tabindex="0"><td>${AX[x.ax]}</td><td class="n">${x.t0.toFixed(1)}–${x.t1.toFixed(1)}</td><td class="n">${x.freq.toFixed(0)} Hz</td><td class="n">±${x.amp.toFixed(0)}°/s</td><td class="n">${Math.max(0, (x.thr - 1000) / 10).toFixed(0)}%</td><td style="white-space:nowrap">${x.stick ? '打桿中' : '<b>震盪</b>'}</td></tr>`).join('') : '<tr><td>沒有偵測到 15–50 Hz、超過 ±12°/s 的震盪。</td></tr>';
-  const keys = [['rollPID', 'Roll P,I,D'], ['pitchPID', 'Pitch P,I,D'], ['yawPID', 'Yaw P,I,D'], ['d_max', 'D max'], ['ff_weight', 'Feedforward'], ['anti_gravity_gain', 'Anti-gravity'], ['anti_gravity_p_gain', 'Anti-gravity P'], ['tpa_rate', 'TPA rate'], ['tpa_breakpoint', 'TPA breakpoint'], ['tpa_mode', 'TPA mode'], ['simplified_master_multiplier', '簡易調參 master'], ['simplified_d_gain', '簡易調參 D'], ['simplified_pi_gain', '簡易調參 PI'], ['gyro_lpf1_dyn_hz', 'Gyro LPF1 dyn'], ['gyro_lpf2_static_hz', 'Gyro LPF2'], ['gyro_notch_hz', 'Gyro notch'], ['dterm_lpf1_dyn_hz', 'D-term LPF1 dyn'], ['dyn_notch_count', '動態 notch 數量'], ['dyn_notch_min_hz', '動態 notch 最低'], ['dyn_notch_max_hz', '動態 notch 最高'], ['rpm_filter_harmonics', 'RPM 濾波諧波'], ['dshot_bidir', '雙向 DShot'], ['motor_kv', '馬達 KV'], ['motor_idle', '怠速'], ['rc_rates', 'RC rates'], ['rates', 'Super rates'], ['rc_expo', 'Expo'], ['Board information', '飛控']];
-  $('cfg').innerHTML = '<tr><th>設定</th><th>值</th><th>CLI 名稱</th></tr>' + keys.filter(([k]) => h[k] != null).map(([k, n]) => `<tr><td>${esc(n)}</td><td class="n">${esc(h[k])}</td><td>${esc(k)}</td></tr>`).join('');
-  $('panels').innerHTML = PANELS.map(p => `<button class="chip" data-p="${p.id}" aria-pressed="${!!p.on}">${esc(p.name)}</button>`).join('');
-  buildStrips(); setWin(0, R.dur); drawSpec();
+function renderPicker() {
+  $('logs').innerHTML = logs.map((l, i) => `<button class="chip ${i === A ? 'A' : i === B ? 'B' : ''}" data-i="${i}">${i === A ? '<span class="tag">A</span>' : i === B ? '<span class="tag">B</span>' : ''}${esc(l.name)} · ${l.R.dur.toFixed(0)}s</button>`).join('');
 }
+const sel = () => [A, B].filter(i => i >= 0).map((i, k) => ({ ...logs[i], col: k === 0 ? CA : CB, tag: k === 0 ? 'A' : 'B' }));
 
-function buildStrips() {
-  const L = logs[cur].L;
-  $('strips').innerHTML = PANELS.filter(p => p.on).map(p => {
-    const s = p.ser(L).filter(x => L.F[x[0]]);
-    return s.length ? `<div class="strip" data-s="${p.id}"><div class="lab"><b>${esc(p.name)}</b>${s.map(x => `<span><i style="background:${x[2] === 'ink' ? 'var(--ink)' : x[2]}"></i>${esc(x[1])}</span>`).join('')}</div><canvas></canvas></div>` : '';
-  }).join('');
-  drawAll();
-}
-
-function idx(t, x) { let lo = 0, hi = t.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (t[m] < x) lo = m + 1; else hi = m; } return lo; }
-
-function setWin(a, b) {
-  const D = logs[cur].R.dur, w = Math.min(b - a, D); a = Math.max(0, Math.min(a, D - w)); win = [a, a + w];
-  $('pos').value = D > w ? Math.round(a / (D - w) * 1000) : 0;
-  $('tw').textContent = `${win[0].toFixed(2)} – ${win[1].toFixed(2)} 秒`;
-  drawAll();
-}
-
-function prepCanvas(cv) { const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1; cv.width = Math.max(1, r.width * d); cv.height = Math.max(1, r.height * d); const g = cv.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); return [g, r.width, r.height]; }
-
-function drawAll() {
+function render() {
   if (!logs.length) return;
-  const { L, R } = logs[cur], t = L.t, i0 = idx(t, win[0]), i1 = Math.min(t.length - 1, idx(t, win[1]));
-  const ink = css('--ink'), grid = css('--grid'), mute = css('--mute');
-  document.querySelectorAll('#strips .strip').forEach(div => {
-    const p = PANELS.find(q => q.id === div.dataset.s), ser = p.ser(L).filter(x => L.F[x[0]]);
-    const [g, W, H] = prepCanvas(div.querySelector('canvas')), padL = 44, pw = W - padL - 4, ph = H - 18;
-    let mn = 1e9, mx = -1e9;
-    for (const [k, , , fn] of ser) { const a = L.F[k]; for (let i = i0; i <= i1; i++) { const v = fn ? fn(a[i]) : a[i]; if (v < mn) mn = v; if (v > mx) mx = v; } }
-    if (mn === mx) { mn -= 1; mx += 1; } const pad = (mx - mn) * 0.06; mn -= pad; mx += pad;
-    const Y = v => 2 + (mx - v) / (mx - mn) * (ph - 4);
-    g.font = '11px system-ui'; g.fillStyle = mute; g.strokeStyle = grid; g.lineWidth = 1;
-    const step = nice((mx - mn) / 4);
-    for (let v = Math.ceil(mn / step) * step; v <= mx; v += step) { const y = Y(v); g.beginPath(); g.moveTo(padL, y); g.lineTo(W - 4, y); g.stroke(); g.fillText(fmt(v), 2, y + 4); }
-    if (mn < 0 && mx > 0) { g.strokeStyle = mute; g.beginPath(); g.moveTo(padL, Y(0)); g.lineTo(W - 4, Y(0)); g.stroke(); }
-    const ts = nice((win[1] - win[0]) / 5);
-    const dec = ts >= 1 ? 0 : ts >= 0.1 ? 1 : 2; for (let x = Math.ceil(win[0] / ts) * ts; x <= win[1]; x += ts) { const px = padL + (x - win[0]) / (win[1] - win[0]) * pw; if (px < W - 30) g.fillText(x.toFixed(dec) + 's', px - 8, H - 3); }
-    // burst shading
-    g.fillStyle = 'rgba(229,56,59,.12)';
-    for (const b of R.bursts) if (!b.stick && b.t1 > win[0] && b.t0 < win[1]) { const x0 = padL + Math.max(0, b.t0 - win[0]) / (win[1] - win[0]) * pw, x1 = padL + Math.min(win[1] - win[0], b.t1 - win[0]) / (win[1] - win[0]) * pw; g.fillRect(x0, 0, Math.max(2, x1 - x0), ph); }
-    for (const [k, , col, fn] of ser) {
-      const a = L.F[k]; g.strokeStyle = col === 'ink' ? ink : col; g.lineWidth = 1.2; g.beginPath();
-      const n = i1 - i0 + 1;
-      if (n <= pw * 2) { for (let i = i0; i <= i1; i++) { const x = padL + (t[i] - win[0]) / (win[1] - win[0]) * pw, y = Y(fn ? fn(a[i]) : a[i]); i === i0 ? g.moveTo(x, y) : g.lineTo(x, y); } }
-      else { const cols = Math.floor(pw); for (let c = 0; c < cols; c++) { const s = i0 + Math.floor(c * n / cols), e = i0 + Math.floor((c + 1) * n / cols); let lo = 1e9, hi = -1e9; for (let i = s; i < e; i++) { const v = fn ? fn(a[i]) : a[i]; if (v < lo) lo = v; if (v > hi) hi = v; } g.moveTo(padL + c + .5, Y(hi)); g.lineTo(padL + c + .5, Y(lo) + .5); } }
-      g.stroke();
-    }
-  });
+  document.querySelectorAll('.tab').forEach(s => s.classList.toggle('on', s.id === 't-' + tab));
+  document.querySelectorAll('nav.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.t === tab));
+  ({ home: rHome, view: rView, spec: rSpec, step: rStep, err: rErr, stat: rStat, set: rSet })[tab]();
 }
+
+// ---------- HOME ----------
+function ringSvg(v) {
+  const r = 44, c = 2 * Math.PI * r, col = v >= 80 ? 'var(--ok)' : v >= 60 ? 'var(--warn)' : 'var(--bad)';
+  return `<svg class="ring" viewBox="0 0 108 108" role="img" aria-label="總分 ${v}"><circle cx="54" cy="54" r="${r}" fill="none" stroke="var(--grid)" stroke-width="10"/><circle cx="54" cy="54" r="${r}" fill="none" stroke="${col}" stroke-width="10" stroke-linecap="round" stroke-dasharray="${c * v / 100} ${c}" transform="rotate(-90 54 54)"/><text x="54" y="60" text-anchor="middle" font-family="Barlow Semi Condensed,sans-serif" font-weight="700" font-size="30" fill="var(--ink)">${v}</text></svg>`;
+}
+function rHome() {
+  const S = sel(), a = S[0], I = a.I, h = a.L.hdr, b = a.R.stats.batt;
+  const col = v => v >= 80 ? 'var(--ok)' : v >= 60 ? 'var(--warn)' : 'var(--bad)';
+  let html = `<div class="card hero" style="margin-top:14px">${ringSvg(I.total)}<div><div class="hint" style="margin:0">${esc(a.name)} · ${esc(h['Craft name'] || '')} · ${a.R.dur.toFixed(0)} 秒${a.X.angle > 0.5 ? ' · 自穩模式' : ''}</div><p>${esc(I.head)}</p></div></div>
+  <div class="scores">${I.cards.map(c => `<div class="card sc"><span>${esc(c.k)}</span><b>${c.v}</b><div class="bar"><i style="width:${c.v}%;background:${col(c.v)}"></i></div><span>${esc(c.d)}</span></div>`).join('')}</div>`;
+  if (S.length > 1) html += `<h2>A 和 B 比較</h2><div class="card">${PT.compare(S[0], S[1]).map(x => `<p style="margin:0 0 8px">${esc(x)}</p>`).join('')}</div>`;
+  html += I.sections.map(s => `<div class="card sec"><h3>${esc(s.t)}</h3><p>${esc(s.p)}</p></div>`).join('');
+  if (I.cli.length) html += `<h2>建議修改（CLI）</h2><div class="cli" id="clibox">${I.cli.map(c => `<span class="why"># ${esc(c.why)}</span>${esc(c.c)}<br>`).join('')}</div>
+    <div class="tools"><button class="btn" id="copycli">複製指令</button><span class="hint" style="margin:0">一次只改一兩項，飛一顆電池、錄 log 再比較。</span></div>`;
+  html += `<h2>詳細檢查項目</h2><div class="card">${a.R.findings.map(f => `<div class="f ${f.lvl}"><h3>${esc(f.title)}</h3><p>${esc(f.body)}</p></div>`).join('')}
+    <div class="f"><h3>其他數據</h3><p>上鎖原因：${esc(a.R.info.disarm)}；陀螺濾波延遲 ${a.X.delay.gyro != null ? a.X.delay.gyro.toFixed(1) + ' ms' : '—'}、D 項總延遲 ${a.X.delay.dterm != null ? a.X.delay.dterm.toFixed(1) + ' ms' : '—'}；${b ? `電池 ${b.cells}S ${b.vs.toFixed(1)}→${b.vend.toFixed(1)} V，峰值 ${b.imax.toFixed(0)} A；` : ''}記錄 ${a.R.fs.toFixed(0)} Hz${a.L.missing && a.L.missing.length ? '；缺少欄位：' + esc(a.L.missing.join('、')) : ''}。</p></div></div>
+    <p class="hint">分析是內建的規則判斷，離線就能跑，不會上傳你的檔案。建議僅供參考，改參數前請確認數值合理。</p>`;
+  $('t-home').innerHTML = html;
+  const cp = $('copycli'); if (cp) cp.onclick = () => copyText(I.cli.map(c => c.c).join('\n'));
+}
+function copyText(t) {
+  const done = () => toast('已複製，貼到 Betaflight Configurator 的 CLI');
+  const fb = () => { const ta = document.createElement('textarea'); ta.value = t; ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); try { document.execCommand('copy'); done(); } catch (e) { toast('無法複製，請長按選取'); } ta.remove(); };
+  try { navigator.clipboard.writeText(t).then(done, fb); } catch (e) { fb(); }
+}
+
+// ---------- VIEWER ----------
+function rView() {
+  const L = sel()[0].L;
+  $('panels').innerHTML = PANELS.map(p => `<button class="chip" data-p="${p.id}" aria-pressed="${!!p.on}">${esc(p.name)}</button>`).join('');
+  if (!win[1] || win[1] > sel()[0].R.dur + 0.01 || win._log !== A) { win = [0, sel()[0].R.dur]; win._log = A; }
+  buildStrips(); setWin(win[0], win[1]);
+}
+function buildStrips() {
+  const L = sel()[0].L;
+  $('strips').innerHTML = PANELS.filter(p => p.on).map(p => { const s = p.ser(L).filter(x => L.F[x[0]]);
+    return s.length ? `<div class="strip" data-s="${p.id}"><div class="lab"><b>${esc(p.name)}</b>${s.map(x => `<span><i style="background:${x[2] === 'ink' ? 'var(--ink)' : x[2]}"></i>${esc(x[1])}</span>`).join('')}</div><canvas></canvas></div>` : ''; }).join('');
+  drawStrips();
+}
+function idx(t, x) { let lo = 0, hi = t.length - 1; while (lo < hi) { const m = (lo + hi) >> 1; if (t[m] < x) lo = m + 1; else hi = m; } return lo; }
+function setWin(a, b) {
+  const D = sel()[0].R.dur, w = Math.min(b - a, D); a = Math.max(0, Math.min(a, D - w)); win[0] = a; win[1] = a + w;
+  $('pos').value = D > w ? Math.round(a / (D - w) * 1000) : 0; $('tw').textContent = `${win[0].toFixed(2)}–${win[1].toFixed(2)} s`; drawStrips();
+}
+function prep(cv) { const r = cv.getBoundingClientRect(), d = devicePixelRatio || 1; cv.width = Math.max(1, r.width * d); cv.height = Math.max(1, r.height * d); const g = cv.getContext('2d'); g.setTransform(d, 0, 0, d, 0, 0); return [g, r.width, r.height]; }
 const nice = r => { const e = Math.pow(10, Math.floor(Math.log10(r || 1))), f = r / e; return (f < 1.5 ? 1 : f < 3.5 ? 2 : f < 7.5 ? 5 : 10) * e; };
 const fmt = v => Math.abs(v) >= 1000 ? (v / 1000).toFixed(1) + 'k' : Math.abs(v) < 10 && v % 1 ? v.toFixed(1) : Math.round(v).toString();
-
-function drawSpec() {
-  const R = logs[cur].R, cv = $('spec'), [g, W, H] = prepCanvas(cv), padL = 8, pw = W - 12, ph = H - 18, fmax = Math.min(1000, R.fs / 2);
-  const ink = css('--mute'), grid = css('--grid'); g.font = '11px system-ui';
-  let mx = 0; const curves = R.noise.map(n => { const d = Array.from(n.w.P, v => 10 * Math.log10(v + 1e-9)); return d; });
-  curves.forEach(d => d.forEach((v, k) => { if (k * R.noise[0].w.df > 20 && v > mx) mx = v; })); const mn = mx - 60;
-  for (let f = 0; f <= fmax; f += 100) { const x = padL + f / fmax * pw; g.strokeStyle = grid; g.beginPath(); g.moveTo(x, 0); g.lineTo(x, ph); g.stroke(); g.fillStyle = ink; g.fillText(f + (f === 0 ? '' : ''), x - 6, H - 3); }
-  curves.forEach((d, a) => { g.strokeStyle = C[a]; g.lineWidth = 1.4; g.beginPath(); d.forEach((v, k) => { const f = k * R.noise[a].w.df; if (f > fmax) return; const x = padL + f / fmax * pw, y = Math.max(0, Math.min(ph, (mx - v) / (mx - mn) * ph)); k ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); });
-  $('speclab').innerHTML = '<b>Hz（相對強度 dB）</b>' + R.noise.map((n, a) => `<span><i style="background:${C[a]}"></i>${AN.AXN[n.ax]} 峰 ${n.peak.toFixed(0)} Hz</span>`).join('');
+function axes(g, W, H, x0, x1, y0, y1, padL, xl, yl) {
+  const ink = css('--mute'), grid = css('--grid'); g.font = '11px system-ui'; g.lineWidth = 1;
+  const pw = W - padL - 6, ph = H - 18, X = v => padL + (v - x0) / (x1 - x0) * pw, Y = v => 4 + (y1 - v) / (y1 - y0) * (ph - 6);
+  const ys = nice((y1 - y0) / 4); for (let v = Math.ceil(y0 / ys) * ys; v <= y1 + 1e-9; v += ys) { g.strokeStyle = grid; g.beginPath(); g.moveTo(padL, Y(v)); g.lineTo(W - 6, Y(v)); g.stroke(); g.fillStyle = ink; g.fillText(yl ? yl(v) : fmt(v), 2, Y(v) + 4); }
+  const xs = nice((x1 - x0) / (W < 420 ? 4 : 6)), dec = xs >= 1 ? 0 : xs >= 0.1 ? 1 : 2;
+  for (let v = Math.ceil(x0 / xs) * xs; v <= x1 + 1e-9; v += xs) { const px = X(v); if (px < W - 24) { g.fillStyle = ink; g.fillText((xl ? xl(v) : v.toFixed(dec)), px - 6, H - 3); } }
+  return { X, Y, pw, ph };
+}
+function drawStrips() {
+  if (tab !== 'view') return; const { L, R } = sel()[0], t = L.t, i0 = idx(t, win[0]), i1 = Math.min(t.length - 1, idx(t, win[1])), ink = css('--ink');
+  document.querySelectorAll('#strips .strip').forEach(div => {
+    const p = PANELS.find(q => q.id === div.dataset.s), ser = p.ser(L).filter(x => L.F[x[0]]), [g, W, H] = prep(div.querySelector('canvas'));
+    let mn = 1e9, mx = -1e9; for (const [k, , , fn] of ser) { const a = L.F[k]; for (let i = i0; i <= i1; i++) { const v = fn ? fn(a[i]) : a[i]; if (v < mn) mn = v; if (v > mx) mx = v; } }
+    if (mn === mx) { mn--; mx++; } const pd = (mx - mn) * .06; mn -= pd; mx += pd;
+    const { X, Y, pw, ph } = axes(g, W, H, win[0], win[1], mn, mx, 40, v => v.toFixed(win[1] - win[0] < 3 ? 1 : 0) + 's');
+    g.fillStyle = 'rgba(229,56,59,.13)'; for (const b of R.bursts) if (!b.stick && b.t1 > win[0] && b.t0 < win[1]) { const a0 = X(Math.max(win[0], b.t0)), a1 = X(Math.min(win[1], b.t1)); g.fillRect(a0, 0, Math.max(2, a1 - a0), ph); }
+    for (const [k, , col, fn] of ser) { const a = L.F[k], n = i1 - i0 + 1; g.strokeStyle = col === 'ink' ? ink : col; g.lineWidth = 1.2; g.beginPath();
+      if (n <= pw * 2) for (let i = i0; i <= i1; i++) { const x = X(t[i]), y = Y(fn ? fn(a[i]) : a[i]); i === i0 ? g.moveTo(x, y) : g.lineTo(x, y); }
+      else { const cols = Math.floor(pw); for (let c = 0; c < cols; c++) { const s = i0 + Math.floor(c * n / cols), e = i0 + Math.floor((c + 1) * n / cols); let lo = 1e9, hi = -1e9; for (let i = s; i < e; i++) { const v = fn ? fn(a[i]) : a[i]; if (v < lo) lo = v; if (v > hi) hi = v; } g.moveTo(40 + c + .5, Y(hi)); g.lineTo(40 + c + .5, Y(lo) + .5); } }
+      g.stroke(); }
+  });
 }
 
-// events
+// ---------- SPECTRUM ----------
+const CMAP = [[13, 8, 135], [84, 2, 163], [139, 10, 165], [185, 50, 137], [219, 92, 104], [244, 136, 73], [254, 188, 43], [240, 249, 33]];
+const cmap = v => { v = Math.max(0, Math.min(1, v)) * (CMAP.length - 1); const i = Math.floor(v), f = v - i, a = CMAP[i], b = CMAP[Math.min(CMAP.length - 1, i + 1)]; return [a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f, a[2] + (b[2] - a[2]) * f]; };
+function rSpec() {
+  const vars = Object.entries(PT.VARS); const cur = $('svar').value || 'gyroUnfilt';
+  $('svar').innerHTML = vars.map(([k, v]) => `<option value="${k}" ${k === cur ? 'selected' : ''}>${esc(v.name)}</option>`).join('');
+  const vk = $('svar').value, isM = vk === 'motor';
+  const axn = isM ? ['M1', 'M2', 'M3', 'M4'] : AX; if (specAx >= axn.length) specAx = 0;
+  $('sax').innerHTML = axn.map((n, i) => `<button class="chip" data-ax="${i}" aria-pressed="${i === specAx}">${n}</button>`).join('');
+  $('slow').setAttribute('aria-pressed', specLow);
+  const S = sel(), H = S.map(s => ({ s, h: PT.heat(s.L, vk, specAx, specLow) }));
+  let zmax = -1e9; H.forEach(({ h }) => { if (h) for (const v of h.z) if (v > 0) zmax = Math.max(zmax, 20 * Math.log10(v)); });
+  $('heats').innerHTML = H.map(({ s }, k) => `<div class="card"><div class="lab"><b style="color:${s.col}">${s.tag}</b>${esc(s.name)} · ${esc(PT.VARS[vk].name)} ${axn[specAx]}</div><div class="fig tall"><canvas data-h="${k}"></canvas></div></div>`).join('');
+  H.forEach(({ h }, k) => {
+    const cv = document.querySelector(`[data-h="${k}"]`); if (!h) return; const [g, W, Hh] = prep(cv);
+    const padL = 34, pw = W - padL - 6, ph = Hh - 20, img = g.createImageData(h.nf, h.TB);
+    for (let t = 0; t < h.TB; t++) for (let f = 0; f < h.nf; f++) { const v = h.z[t * h.nf + f], db = v > 0 ? 20 * Math.log10(v) : -200, [r, gg, b] = h.cnt[t] ? cmap((db - (zmax - 50)) / 50) : [40, 40, 48], o = ((h.TB - 1 - t) * h.nf + f) * 4; img.data[o] = r; img.data[o + 1] = gg; img.data[o + 2] = b; img.data[o + 3] = 255; }
+    const off = document.createElement('canvas'); off.width = h.nf; off.height = h.TB; off.getContext('2d').putImageData(img, 0, 0);
+    g.imageSmoothingEnabled = true; g.drawImage(off, padL, 0, pw, ph);
+    g.font = '11px system-ui'; g.fillStyle = css('--mute');
+    for (let p = 0; p <= 100; p += 25) g.fillText(p + '%', 0, Math.max(10, ph - p / 100 * ph + 4));
+    const st = nice(h.fmax / (W < 420 ? 4 : 8)); for (let f = 0; f <= h.fmax; f += st) g.fillText(f.toFixed(0), padL + f / h.fmax * pw - 6, Hh - 4);
+  });
+  // 1-D spectrum
+  const cv = $('spec1'), [g, W, Hh] = prep(cv), sp = S.map(s => PT.spectrum(s.L, vk, specAx)), fmax = specLow ? 100 : Math.min(1000, S[0].R.fs / 2);
+  let mx = -1e9; sp.forEach(p => p && p.P.forEach((v, k) => { if (k * p.df > 5 && k * p.df <= fmax) mx = Math.max(mx, 20 * Math.log10(v + 1e-9)); }));
+  const { X, Y } = axes(g, W, Hh, 0, fmax, mx - 50, mx + 2, 34, v => v.toFixed(0), v => v.toFixed(0));
+  sp.forEach((p, k) => { if (!p) return; g.strokeStyle = S[k].col; g.lineWidth = 1.5; g.beginPath(); let st = 0; p.P.forEach((v, i) => { const f = i * p.df; if (f > fmax) return; const y = Y(Math.max(mx - 50, 20 * Math.log10(v + 1e-9))); st++ ? g.lineTo(X(f), y) : g.moveTo(X(f), y); }); g.stroke(); });
+  $('splab').innerHTML = `<b>頻譜（dB）</b>` + S.map(s => `<span><i style="background:${s.col}"></i>${s.tag} ${esc(s.name)}</span>`).join('');
+  $('delay').innerHTML = `<h3>濾波延遲（相位延遲）</h3><table><tr><th></th><th>陀螺濾波</th><th>D 項（含陀螺）</th></tr>${S.map(s => `<tr><td><b style="color:${s.col}">${s.tag}</b> ${esc(s.name)}</td><td class="n">${s.X.delay.gyro != null ? s.X.delay.gyro.toFixed(2) + ' ms' : '—'}</td><td class="n">${s.X.delay.dterm != null ? s.X.delay.dterm.toFixed(2) + ' ms' : '—'}</td></tr>`).join('')}</table><p class="hint">用濾波前後訊號的互相關估算。延遲越低越跟手，但濾得太少雜訊會變大、馬達會變熱。</p>`;
+}
+
+// ---------- STEP ----------
+function rStep() {
+  const S = sel();
+  $('steps').innerHTML = AX.map((n, ax) => `<div class="card"><div class="lab"><b>${n}</b>${S.map(s => `<span><i style="background:${s.col}"></i>${s.tag}</span>`).join('')}</div><div class="fig"><canvas data-st="${ax}"></canvas></div>
+    <table><tr><th></th><th>過衝</th><th>50% 時間</th><th>90% 時間</th><th>樣本數</th></tr>${S.map(s => { const r = s.X.steps[ax]; return `<tr><td><b style="color:${s.col}">${s.tag}</b></td>${r && r.n ? `<td class="n">${((r.peak - 1) * 100).toFixed(0)}%</td><td class="n">${r.t50.toFixed(1)} ms</td><td class="n">${r.t90.toFixed(1)} ms</td><td class="n">${r.n}</td>` : '<td colspan="4">打桿動作太少，算不出來</td>'}</tr>`; }).join('')}</table></div>`).join('');
+  AX.forEach((n, ax) => {
+    const [g, W, H] = prep(document.querySelector(`[data-st="${ax}"]`)), { X, Y } = axes(g, W, H, 0, 500, 0, 1.75, 30, v => v.toFixed(0) + (v === 500 ? 'ms' : ''), v => v.toFixed(2).replace(/0+$/, '').replace(/\.$/, ''));
+    g.setLineDash([4, 4]); g.strokeStyle = css('--mute'); g.beginPath(); g.moveTo(X(0), Y(1)); g.lineTo(X(500), Y(1)); g.stroke(); g.setLineDash([]);
+    S.forEach(s => { const r = s.X.steps[ax]; if (!r || !r.n) return; g.strokeStyle = s.col; g.lineWidth = 2; g.beginPath(); r.y.forEach((v, i) => { const x = X(i * r.dt), y = Y(Math.max(0, Math.min(1.75, v))); i ? g.lineTo(x, y) : g.moveTo(x, y); }); g.stroke(); });
+  });
+}
+
+// ---------- ERROR ----------
+function rErr() {
+  const S = sel(), ms = +$('maxst').value; $('maxsto').textContent = ms + '°/s';
+  const E = S.map(s => PT.errVsThr(s.L, ms)); let mx = 0; E.forEach(e => e.forEach(a => a.bands.forEach(v => { if (v != null) mx = Math.max(mx, v); })));
+  $('errs').innerHTML = AX.map((n, ax) => `<div class="card"><div class="lab"><b>${n}</b>${S.map((s, k) => `<span><i style="background:${s.col}"></i>${s.tag} 平均 ${E[k][ax].mean.toFixed(2)}°/s</span>`).join('')}</div>
+    <div class="hb">${[...Array(10)].map((_, b) => `<span>${b * 10}–${b * 10 + 10}%</span><div class="row">${S.map((s, k) => { const v = E[k][ax].bands[b]; return `<i style="width:${v == null ? 0 : v / mx * 100}%;background:${s.col}" title="${v == null ? '無資料' : v.toFixed(2)}"></i>`; }).join('')}</div>`).join('')}</div>
+    <p class="hint">左邊是油門區間，橫條越短越好；沒有橫條代表該油門區間飛得太少。</p></div>`).join('');
+}
+
+// ---------- STATS ----------
+function hist(title, S, get, labels) {
+  let mx = 0; S.forEach(s => get(s).forEach(v => mx = Math.max(mx, v)));
+  return `<div class="card"><div class="lab"><b>${title}</b>${S.map(s => `<span><i style="background:${s.col}"></i>${s.tag}</span>`).join('')}</div><div class="hb">${labels.map((l, i) => `<span>${l}</span><div class="row">${S.map(s => `<i style="width:${get(s)[i] / mx * 100}%;background:${s.col}"></i>`).join('')}</div>`).join('')}</div></div>`;
+}
+function rStat() {
+  const S = sel(), five = [...Array(20)].map((_, i) => `${i * 5}%`);
+  let html = `<div class="card scroll"><table><tr><th></th>${S.map(s => `<th style="color:${s.col}">${s.tag} ${esc(s.name)}</th>`).join('')}</tr>
+    ${[['飛行時間', s => s.X.stats.flyDur.toFixed(1) + ' s'], ['平均油門', s => s.X.stats.thrMean.toFixed(1) + '%'], ['滿油門時間', s => s.X.stats.fullPct.toFixed(1) + '%'], ['馬達頂到上限', s => ((s.R.stats.sat || 0) * 100).toFixed(1) + '%'], ['最低電壓', s => s.R.stats.batt ? (s.R.stats.batt.vmin / s.R.stats.batt.cells).toFixed(2) + ' V/cell' : '—'], ['峰值電流', s => s.R.stats.batt ? s.R.stats.batt.imax.toFixed(0) + ' A' : '—'], ['自穩模式比例', s => (s.X.angle * 100).toFixed(0) + '%'], ['上鎖原因', s => esc(s.R.info.disarm)]].map(([k, f]) => `<tr><td>${k}</td>${S.map(s => `<td class="n">${f(s)}</td>`).join('')}</tr>`).join('')}</table></div>`;
+  html += hist('油門分佈（時間 %）', S, s => s.X.stats.thrH, five);
+  const nm = S[0].X.stats.motH.length;
+  for (let k = 0; k < nm; k++) html += hist(`M${k + 1} 輸出分佈`, S, s => s.X.stats.motH[k] || [], five);
+  AX.forEach((n, ax) => html += hist(`${n} 搖桿速率分佈`, S, s => s.X.stats.stick[ax], [...Array(20)].map((_, i) => `${i * 50}°/s`)));
+  $('stats').innerHTML = html;
+}
+
+// ---------- SETTINGS ----------
+function rSet() {
+  const S = sel(), only = $('onlydiff').getAttribute('aria-pressed') === 'true';
+  const keys = Object.keys(S[0].L.hdr).filter(k => !/^Field|^Product|^Data version/.test(k));
+  const rows = keys.filter(k => !only || (S[1] && S[1].L.hdr[k] !== S[0].L.hdr[k]));
+  $('cfg').innerHTML = `<tr><th>名稱</th>${S.map(s => `<th style="color:${s.col}">${s.tag}</th>`).join('')}</tr>` + rows.map(k => `<tr class="${S[1] && S[1].L.hdr[k] !== S[0].L.hdr[k] ? 'diff' : ''}"><td>${esc(k)}</td>${S.map(s => `<td>${esc(s.L.hdr[k] ?? '—')}</td>`).join('')}</tr>`).join('');
+}
+
+// ---------- events ----------
 $('file').addEventListener('change', e => { if (e.target.files.length) load([...e.target.files]); e.target.value = ''; });
-const drop = $('drop');
-['dragover', 'dragenter'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('drag'); }));
-['dragleave', 'drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('drag'); }));
-drop.addEventListener('drop', e => { if (e.dataTransfer.files.length) load([...e.dataTransfer.files]); });
-$('logs').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (b) show(+b.dataset.i); });
+document.addEventListener('dragover', e => e.preventDefault()); document.addEventListener('drop', e => { e.preventDefault(); if (e.dataTransfer.files.length) load([...e.dataTransfer.files]); });
+$('logs').addEventListener('click', e => { const b = e.target.closest('[data-i]'); if (!b) return; const i = +b.dataset.i;
+  if (i === A) { A = B >= 0 ? B : A; B = -1; } else if (i === B) B = -1; else if (B < 0 && A >= 0) B = i; else { A = i; B = -1; }
+  renderPicker(); render(); });
+$('tabs').addEventListener('click', e => { const b = e.target.closest('[data-t]'); if (!b) return; tab = b.dataset.t; render(); scrollTo(0, 0); });
 $('panels').addEventListener('click', e => { const b = e.target.closest('[data-p]'); if (!b) return; const p = PANELS.find(q => q.id === b.dataset.p); p.on = p.on ? 0 : 1; b.setAttribute('aria-pressed', !!p.on); try { localStorage.setItem('bbPanels', JSON.stringify(PANELS.filter(q => q.on).map(q => q.id))); } catch (er) {} buildStrips(); });
-document.querySelectorAll('[data-z]').forEach(b => b.addEventListener('click', () => { const z = +b.dataset.z, D = logs[cur].R.dur; if (!z) setWin(0, D); else { const c = (win[0] + win[1]) / 2; setWin(c - z / 2, c + z / 2); } }));
-$('pos').addEventListener('input', e => { const D = logs[cur].R.dur, w = win[1] - win[0]; const a = (D - w) * e.target.value / 1000; setWin(a, a + w); });
-document.addEventListener('click', e => { const b = e.target.closest('[data-j]'); if (!b) return; const t0 = +b.dataset.j; setWin(t0 - 0.2, t0 + 1.3); document.querySelector('#strips').scrollIntoView({ behavior: matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth', block: 'start' }); });
+document.querySelectorAll('[data-z]').forEach(b => b.addEventListener('click', () => { const z = +b.dataset.z, D = sel()[0].R.dur; if (!z) setWin(0, D); else { const c = (win[0] + win[1]) / 2; setWin(c - z / 2, c + z / 2); } }));
+$('pos').addEventListener('input', e => { const D = sel()[0].R.dur, w = win[1] - win[0], a = (D - w) * e.target.value / 1000; setWin(a, a + w); });
+$('svar').addEventListener('change', () => { specAx = 0; rSpec(); });
+$('sax').addEventListener('click', e => { const b = e.target.closest('[data-ax]'); if (b) { specAx = +b.dataset.ax; rSpec(); } });
+$('slow').addEventListener('click', () => { specLow = !specLow; rSpec(); });
+$('maxst').addEventListener('input', rErr);
+$('onlydiff').addEventListener('click', e => { const b = e.currentTarget; b.setAttribute('aria-pressed', b.getAttribute('aria-pressed') !== 'true'); rSet(); });
 let drag = null;
-$('strips').addEventListener('pointerdown', e => { if (e.target.tagName !== 'CANVAS') return; drag = { x: e.clientX, w: win.slice(), W: e.target.getBoundingClientRect().width - 48 }; });
-addEventListener('pointermove', e => { if (!drag) return; const dt = (drag.x - e.clientX) / drag.W * (drag.w[1] - drag.w[0]); if (Math.abs(drag.x - e.clientX) > 3) setWin(drag.w[0] + dt, drag.w[1] + dt); });
+$('strips').addEventListener('pointerdown', e => { if (e.target.tagName === 'CANVAS') drag = { x: e.clientX, w: win.slice(), W: e.target.getBoundingClientRect().width - 46 }; });
+addEventListener('pointermove', e => { if (!drag || Math.abs(drag.x - e.clientX) < 4) return; const dt = (drag.x - e.clientX) / drag.W * (drag.w[1] - drag.w[0]); setWin(drag.w[0] + dt, drag.w[1] + dt); });
 addEventListener('pointerup', () => drag = null); addEventListener('pointercancel', () => drag = null);
-const ro = new ResizeObserver(() => { if (logs.length) { drawAll(); drawSpec(); } }); ro.observe(document.body);
+let rw = innerWidth; const ro = new ResizeObserver(() => { if (logs.length && Math.abs(innerWidth - rw) > 2) { rw = innerWidth; render(); } }); ro.observe(document.body);
 }
 </script>
 </body>
