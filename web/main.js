@@ -8,7 +8,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
-const DEF = { plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 0,
+const DEF = { plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
   pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false] } };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
@@ -30,6 +30,7 @@ function resize() {
   camera.aspect = w / h;
   camera.updateProjectionMatrix();
   layoutSticks();
+  layoutPip();
 }
 window.addEventListener('resize', resize);
 
@@ -71,7 +72,7 @@ function resetPlane(air) {
   mdl.group.visible = true;
   smoke.reset();
   toastTimer = 0; $('toast').style.opacity = 0;
-  camState.init = false;
+  camState.init = pipState.init = false;
   maxDist = 0;
 }
 
@@ -299,46 +300,105 @@ function updateAudio(dist) {
 }
 
 // ---------- 相機 ----------
-const CAMS = ['追尾', '地面', 'FPV'];
-const camState = { init: false, pos: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, -1), look: new THREE.Vector3() };
-function updateCamera(dt) {
+// cfg.cam：0 = 第三人稱（追尾）、1 = 地面目視、2 = 第一人稱（FPV）
+// cfg.pip：地面目視模式下方小視窗 0 = 關、1 = 第三人稱、2 = 第一人稱
+const CAMS = ['第三人稱', '地面目視', '第一人稱'];
+const PIPS = ['關', '第三人稱', '第一人稱'];
+const pipCam = new THREE.PerspectiveCamera(62, 1.6, 0.05, 9000);
+const newState = () => ({ init: false, pos: new THREE.Vector3(), fwd: new THREE.Vector3(0, 0, -1), look: new THREE.Vector3() });
+const camState = newState(), pipState = newState();
+
+function chaseCam(cam, st, dt) {
   const p = fm.pos;
-  if (fm.crashed && cfg.cam !== 1) { camera.lookAt(p); return; }
-  if (cfg.cam === 0) {
-    const f = new THREE.Vector3(0, 0, -1).applyQuaternion(fm.q);
-    if (fm.vel.length() > 3) f.lerp(fm.vel.clone().normalize(), 0.5).normalize();
-    if (!camState.init) { camState.fwd.copy(f); }
-    camState.fwd.lerp(f, 1 - Math.exp(-2.5 * dt)).normalize();
-    const hz = new THREE.Vector3(camState.fwd.x, 0, camState.fwd.z);
-    if (hz.lengthSq() < 0.01) hz.set(0, 0, -1);
-    hz.normalize();
-    const dist = 3.2 + fm.spec.span;
-    const target = p.clone().addScaledVector(camState.fwd, -dist * 0.75).addScaledVector(hz, -dist * 0.35);
-    target.y += 1.0 + fm.spec.span * 0.3;
-    if (!camState.init) camState.pos.copy(target);
-    camState.pos.lerp(target, 1 - Math.exp(-6 * dt));
-    const gh = terrainHeight(camState.pos.x, camState.pos.z) + 0.5;
-    if (camState.pos.y < gh) camState.pos.y = gh;
-    camera.position.copy(camState.pos);
-    camera.up.set(0, 1, 0);
-    camera.lookAt(p.x, p.y + 0.25, p.z);
-    camera.fov = 62;
-  } else if (cfg.cam === 1) {
-    camera.position.copy(PILOT);
-    camera.up.set(0, 1, 0);
-    if (!camState.init) camState.look.copy(p);
-    camState.look.lerp(p, 1 - Math.exp(-14 * dt));
-    camera.lookAt(camState.look);
-    const d = camera.position.distanceTo(p);
-    camera.fov = clamp(2 * Math.atan(4.5 / d) * 180 / Math.PI, 10, 60);
-  } else {
-    const off = new THREE.Vector3(0, 0.09, -fm.spec.length * 0.3).applyQuaternion(fm.q);
-    camera.position.copy(fm.pos).add(off);
-    camera.quaternion.copy(fm.q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.12));
-    camera.fov = 95;
+  const f = new THREE.Vector3(0, 0, -1).applyQuaternion(fm.q);
+  if (fm.vel.length() > 3) f.lerp(fm.vel.clone().normalize(), 0.5).normalize();
+  if (!st.init) st.fwd.copy(f);
+  st.fwd.lerp(f, 1 - Math.exp(-2.5 * dt)).normalize();
+  const hz = new THREE.Vector3(st.fwd.x, 0, st.fwd.z);
+  if (hz.lengthSq() < 0.01) hz.set(0, 0, -1);
+  hz.normalize();
+  const dist = 3.2 + fm.spec.span;
+  const target = p.clone().addScaledVector(st.fwd, -dist * 0.75).addScaledVector(hz, -dist * 0.35);
+  target.y += 1.0 + fm.spec.span * 0.3;
+  if (!st.init) st.pos.copy(target);
+  st.pos.lerp(target, 1 - Math.exp(-6 * dt));
+  const gh = terrainHeight(st.pos.x, st.pos.z) + 0.5;
+  if (st.pos.y < gh) st.pos.y = gh;
+  cam.position.copy(st.pos);
+  cam.up.set(0, 1, 0);
+  cam.lookAt(p.x, p.y + 0.25, p.z);
+  cam.fov = 62;
+}
+function groundCam(cam, st, dt) {
+  const p = fm.pos;
+  cam.position.copy(PILOT);
+  cam.up.set(0, 1, 0);
+  if (!st.init) st.look.copy(p);
+  st.look.lerp(p, 1 - Math.exp(-14 * dt));
+  cam.lookAt(st.look);
+  const d = cam.position.distanceTo(p);
+  cam.fov = clamp(2 * Math.atan(4.5 / d) * 180 / Math.PI, 10, 60);
+}
+function fpvCam(cam) {
+  const off = new THREE.Vector3(0, 0.09, -fm.spec.length * 0.3).applyQuaternion(fm.q);
+  cam.position.copy(fm.pos).add(off);
+  cam.quaternion.copy(fm.q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.12));
+  cam.fov = 95;
+}
+function runCam(mode, cam, st, dt) {
+  if (fm.crashed && mode !== 1) { cam.up.set(0, 1, 0); cam.lookAt(fm.pos); }
+  else if (mode === 0) chaseCam(cam, st, dt);
+  else if (mode === 1) groundCam(cam, st, dt);
+  else fpvCam(cam);
+  st.init = true;
+  cam.updateProjectionMatrix();
+}
+function updateCamera(dt) {
+  runCam(cfg.cam, camera, camState, dt);
+  if (pipActive()) runCam(cfg.pip === 1 ? 0 : 2, pipCam, pipState, dt);
+}
+const pipActive = () => cfg.cam === 1 && cfg.pip > 0;
+function pipRect() {
+  const W = window.innerWidth, H = window.innerHeight;
+  const w = Math.round(Math.min(W * 0.34, 340, H * 0.55)), h = Math.round(w * 0.62);
+  return { x: Math.round((W - w) / 2), y: Math.max(8, Math.round(H * 0.025)), w, h };
+}
+function layoutPip() {
+  const el = $('pip');
+  el.style.display = pipActive() ? 'block' : 'none';
+  if (!pipActive()) return;
+  const r = pipRect();
+  Object.assign(el.style, { left: r.x + 'px', bottom: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
+  el.querySelector('span').textContent = PIPS[cfg.pip] + '視角';
+  pipCam.aspect = r.w / r.h;
+}
+function renderAll() {
+  const showPlane = !fm.crashed;
+  mdl.group.visible = showPlane && cfg.cam !== 2;
+  renderer.setScissorTest(false);
+  renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+  renderer.render(scene, camera);
+  if (pipActive()) {
+    const r = pipRect();
+    mdl.group.visible = showPlane && cfg.pip !== 2;
+    const sc = smoke.mat.uniforms.scale.value;
+    smoke.mat.uniforms.scale.value = r.h / (2 * Math.tan(pipCam.fov * Math.PI / 360));
+    renderer.setScissorTest(true);
+    renderer.setScissor(r.x, r.y, r.w, r.h);
+    renderer.setViewport(r.x, r.y, r.w, r.h);
+    renderer.render(scene, pipCam);
+    renderer.setScissorTest(false);
+    renderer.setViewport(0, 0, window.innerWidth, window.innerHeight);
+    smoke.mat.uniforms.scale.value = sc;
   }
-  camState.init = true;
-  camera.updateProjectionMatrix();
+}
+function setCam(m) {
+  cfg.cam = m; save();
+  $('bCam').textContent = '視角：' + CAMS[m];
+  $('bPip').style.display = m === 1 ? '' : 'none';
+  $('bPip').textContent = '小窗：' + PIPS[cfg.pip];
+  camState.init = pipState.init = false;
+  layoutPip();
 }
 
 // ---------- HUD ----------
@@ -380,7 +440,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   let dt = Math.min(0.05, (now - last) / 1000);
   last = now;
-  if (paused) { renderer.render(scene, camera); return; }
+  if (paused) { renderAll(); return; }
   readInput();
   accum += dt;
   while (accum >= STEP) {
@@ -401,7 +461,6 @@ function frame(now) {
   mdl.group.position.copy(fm.pos);
   mdl.group.quaternion.copy(fm.q);
   mdl.update(input, fm.crashed ? 0 : input.thr * (fm.spec.glider ? 70 : 90) + (input.thr > 0.02 ? 15 : 0), dt);
-  mdl.group.visible = !fm.crashed && cfg.cam !== 2;
 
   // 地面陰影
   const gh = terrainHeight(fm.pos.x, fm.pos.z);
@@ -428,7 +487,7 @@ function frame(now) {
   updateHud(dt);
   drawSticks();
   updateAudio(camera.position.distanceTo(fm.pos));
-  renderer.render(scene, camera);
+  renderAll();
 }
 
 // ---------- 選單 ----------
@@ -443,6 +502,19 @@ function buildMenu() {
     b.onclick = () => { cfg.plane = k; save(); buildMenu(); loadPlane(k); };
     ps.appendChild(b);
   }
+  const opts = (id, list, key, cb) => {
+    const el = $(id); el.innerHTML = '';
+    list.forEach(([v, t, d]) => {
+      const b = document.createElement('button');
+      b.className = 'opt' + (cfg[key] === v ? ' sel' : '');
+      b.innerHTML = `<b>${t}</b><span>${d}</span>`;
+      b.onclick = () => { cfg[key] = v; save(); cb(); buildMenu(); };
+      el.appendChild(b);
+    });
+  };
+  opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
+  opts('pipSel', [[1, '第三人稱', '小窗顯示飛機姿態'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
+  $('pipRow').style.opacity = cfg.cam === 1 ? 1 : 0.45;
   for (const b of $('modeSel').children) {
     b.classList.toggle('sel', +b.dataset.mode === cfg.mode);
     b.onclick = () => { cfg.mode = +b.dataset.mode; save(); buildMenu(); layoutSticks(); setThrottleStick(input.thr); };
@@ -511,8 +583,9 @@ $('bMenu').onclick = () => { $('menu').classList.add('show'); paused = true; $('
 $('bReset').onclick = () => resetPlane(false);
 $('bAir').onclick = () => resetPlane(true);
 $('bSmoke').onclick = () => { smoke.on = !smoke.on; $('bSmoke').classList.toggle('on', smoke.on); };
-$('bCam').onclick = () => { cfg.cam = (cfg.cam + 1) % 3; save(); $('bCam').textContent = CAMS[cfg.cam]; camState.init = false; };
-$('bCam').textContent = CAMS[cfg.cam];
+$('bCam').onclick = () => { setCam((cfg.cam + 1) % 3); buildMenu(); };
+$('bPip').onclick = () => { cfg.pip = (cfg.pip + 1) % 3; setCam(cfg.cam); buildMenu(); };
+setCam(cfg.cam);
 
 loadPlane(cfg.plane);
 buildMenu();

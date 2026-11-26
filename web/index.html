@@ -17,6 +17,8 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
 .btn{background:rgba(10,16,24,.6);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:10px;height:40px;min-width:44px;padding:0 10px;font-size:14px;font-weight:600}
 .btn:active{background:rgba(255,120,40,.7)}
 .btn.on{background:rgba(255,110,30,.75)}
+#pip{position:fixed;display:none;border:2px solid rgba(255,255,255,.55);border-radius:10px;box-shadow:0 4px 18px rgba(0,0,0,.45);pointer-events:none;z-index:2}
+#pip span{position:absolute;top:4px;left:8px;font-size:11px;font-weight:700;text-shadow:0 1px 3px #000;opacity:.9}
 #warn{position:fixed;top:64px;left:50%;transform:translateX(-50%);font-weight:800;font-size:20px;color:#ff5252;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .2s;pointer-events:none}
 #toast{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0;transition:opacity .3s}
 #toast h2{margin:0;font-size:34px;text-shadow:0 3px 12px rgba(0,0,0,.6)}
@@ -28,7 +30,7 @@ canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
 .base::before{left:50%;top:8px;bottom:8px;width:1px}.base::after{top:50%;left:8px;right:8px;height:1px}
 .knob{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#bbb 60%,#777);box-shadow:0 3px 10px rgba(0,0,0,.5)}
 .lbl{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:11px;opacity:.65}
-#panel,#menu{position:fixed;inset:0;background:rgba(6,10,16,.82);backdrop-filter:blur(8px);display:none;overflow:auto;padding:max(16px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) 20px max(20px,env(safe-area-inset-left))}
+#panel,#menu{position:fixed;inset:0;z-index:10;background:rgba(6,10,16,.82);backdrop-filter:blur(8px);display:none;overflow:auto;padding:max(16px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) 20px max(20px,env(safe-area-inset-left))}
 #panel.show,#menu.show{display:block}
 .card{max-width:760px;margin:0 auto}
 h1{font-size:30px;margin:6px 0 2px}h3{margin:18px 0 8px;font-size:15px;opacity:.85}
@@ -62,7 +64,8 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
     <div class="pill"><small>距離</small><b id="tDst">0</b><small>m</small></div>
   </div>
   <div id="btns">
-    <button class="btn" id="bCam">追尾</button>
+    <button class="btn" id="bCam">視角</button>
+    <button class="btn" id="bPip">小窗</button>
     <button class="btn" id="bSmoke">煙</button>
     <button class="btn" id="bAir">空中</button>
     <button class="btn" id="bReset">重置</button>
@@ -72,6 +75,7 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
 <div id="warn">失速！</div>
 <div id="toast"><h2 id="toastT"></h2><p id="toastP"></p></div>
 
+<div id="pip"><span></span></div>
 <div class="stick" id="stickL"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
 <div class="stick" id="stickR"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
 
@@ -82,6 +86,11 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
 
     <h3>選擇飛機</h3>
     <div class="row" id="planeSel"></div>
+
+    <h3>操作視角</h3>
+    <div class="row" id="camSel"></div>
+    <div id="pipRow"><h3>地面目視模式：正下方小視窗</h3>
+    <div class="row" id="pipSel"></div></div>
 
     <h3>操控</h3>
     <div class="row" id="modeSel">
