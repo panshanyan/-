@@ -3,6 +3,7 @@ import { FlightModel, PLANES } from './physics.js';
 import { terrainHeight } from './terrain.js';
 import { buildWorld, PILOT, SUN_DIR } from './world.js';
 import { buildPlane } from './model.js';
+import { PAINTS } from './trainer.js';
 import { LESSONS, Tutor } from './tutorial.js';
 import { ITEMS, Examiner, PAT, C8, BAND, PRE_CHECK, POST_CHECK } from './exam.js';
 
@@ -10,7 +11,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
-const DEF = { plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
+const DEF = { paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
   pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false] } };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
@@ -49,7 +50,7 @@ function loadPlane(key) {
   if (mdl) scene.remove(mdl.group);
   const spec = PLANES[key];
   fm = new FlightModel(spec, terrainHeight);
-  mdl = buildPlane(spec);
+  mdl = buildPlane(spec, cfg.paint);
   scene.add(mdl.group);
   applyWind();
   resetPlane(false);
@@ -804,7 +805,7 @@ window.__back = () => {
 let paused = true;
 function buildMenu() {
   const ps = $('planeSel'); ps.innerHTML = '';
-  const desc = { trainer: '上單翼、穩定、會自己回正，新手首選', sport: '高舵量、推重比 >1，可做 3D 懸停與特技', glider: '長翼展、超省力，關油門也能滑翔很久' };
+  const desc = { trainer: '1220 mm 上單翼、約 1.1 kg、穩定好飛，新手首選', sport: '高舵量、推重比 >1，可做 3D 懸停與特技', glider: '長翼展、超省力，關油門也能滑翔很久' };
   for (const k of Object.keys(PLANES)) {
     const b = document.createElement('button');
     b.className = 'opt' + (cfg.plane === k ? ' sel' : '');
@@ -825,6 +826,15 @@ function buildMenu() {
   opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
   opts('pipSel', [[1, '第三人稱', '水平朝操作者前方、角度固定，飛機占滿小窗'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
   $('pipRow').style.opacity = cfg.cam === 1 ? 1 : 0.45;
+  const pt = $('paintSel'); pt.innerHTML = '';
+  for (const [k, v] of Object.entries(PAINTS)) {
+    const b = document.createElement('button');
+    b.className = 'swatch' + (cfg.paint === k ? ' sel' : '');
+    b.style.background = '#' + v.c.toString(16).padStart(6, '0');
+    b.textContent = v.name;
+    b.onclick = () => { cfg.paint = k; save(); buildMenu(); if (fm && fm.spec.detail === 'trainer') { const p = fm.pos.clone(), q = fm.q.clone(); scene.remove(mdl.group); mdl = buildPlane(fm.spec, cfg.paint); scene.add(mdl.group); mdl.group.position.copy(p); mdl.group.quaternion.copy(q); } };
+    pt.appendChild(b);
+  }
   for (const b of $('modeSel').children) {
     b.classList.toggle('sel', +b.dataset.mode === cfg.mode);
     b.onclick = () => { cfg.mode = +b.dataset.mode; save(); buildMenu(); layoutSticks(); setThrottleStick(input.thr); };

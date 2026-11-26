@@ -6,9 +6,9 @@ const RHO = 1.225, G = 9.81, D2R = Math.PI / 180;
 
 export const PLANES = {
   trainer: {
-    name: '練習機', mass: 1.4, S: 0.32, span: 1.4, length: 1.1,
+    name: '練習機', mass: 1.1, S: 0.254, span: 1.22, length: 0.95, detail: 'trainer', wingY: 0.12,
     CL0: 0.28, CLa: 4.8, trimA: 0.5, stall: 14, CD0: 0.04, k: 0.06,
-    thrust: 13, vprop: 35, rates: [150, 180, 90], vref: 14,
+    thrust: 12, vprop: 30, rates: [150, 180, 90], vref: 14,
     stabP: 9, stabY: 6, dihedral: 3.0, propwash: 0.35, resp: 6, autoP: 0.9, autoR: 0.8,
     color: 0xffc41f, accent: 0xd32f2f, highWing: true,
   },
@@ -17,14 +17,14 @@ export const PLANES = {
     CL0: 0.0, CLa: 4.5, trimA: 2.2, stall: 16, CD0: 0.05, k: 0.07,
     thrust: 17, vprop: 33, rates: [320, 420, 220], vref: 13,
     stabP: 4, stabY: 3, dihedral: 0.2, propwash: 1.1, resp: 10,
-    color: 0xf5f5f5, accent: 0x1565c0, highWing: false,
+    color: 0xf5f5f5, accent: 0x1565c0, highWing: false, wingY: -0.04,
   },
   glider: {
     name: '滑翔機', mass: 1.1, S: 0.36, span: 2.0, length: 1.2,
     CL0: 0.45, CLa: 5.2, trimA: 0, stall: 12, CD0: 0.022, k: 0.035,
     thrust: 7, vprop: 26, rates: [110, 110, 70], vref: 12,
     stabP: 10, stabY: 7, dihedral: 4.5, propwash: 0.25, resp: 5, autoP: 0.3, autoR: 0.3,
-    color: 0xffffff, accent: 0xff6d00, highWing: true, glider: true,
+    color: 0xffffff, accent: 0xff6d00, highWing: true, glider: true, wingY: 0.06,
   },
 };
 
@@ -159,7 +159,8 @@ export class FlightModel {
     const s = this.spec;
     const gh = this.h(this.pos.x, this.pos.z);
     // 檢查翼尖、機頭、機尾是否撞地
-    const pts = [[s.span / 2, 0, 0], [-s.span / 2, 0, 0], [0, 0.05, -s.length * 0.5], [0, 0.1, s.length * 0.5]];
+    const wy = s.wingY ?? 0;
+    const pts = [[s.span / 2, wy, 0], [-s.span / 2, wy, 0], [0, 0.05, -s.length * 0.5], [0, 0.1, s.length * 0.5]];
     for (const p of pts) {
       const wp = new Vector3(...p).applyQuaternion(this.q).add(this.pos);
       if (wp.y < this.h(wp.x, wp.z) - 0.02) {

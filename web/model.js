@@ -1,5 +1,6 @@
 // RC 飛機 3D 模型：旋轉體機身、翼型主翼、可動舵面、螺旋槳
 import * as THREE from 'three';
+import { buildTrainer } from './trainer.js';
 
 const paint = (c, o = {}) => new THREE.MeshStandardMaterial({ color: c, roughness: 0.32, metalness: 0.08, ...o });
 
@@ -54,7 +55,8 @@ function textTex(text, color, w = 512, h = 96) {
   return t;
 }
 
-export function buildPlane(spec) {
+export function buildPlane(spec, paint) {
+  if (spec.detail === 'trainer') return buildTrainer(paint);
   const g = new THREE.Group();
   const main = paint(spec.color), acc = paint(spec.accent), dark = new THREE.MeshStandardMaterial({ color: 0x1b1b1b, roughness: 0.6 });
   const chrome = new THREE.MeshStandardMaterial({ color: 0xdddddd, roughness: 0.15, metalness: 1 });
