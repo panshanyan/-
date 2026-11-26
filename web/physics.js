@@ -7,9 +7,9 @@ const RHO = 1.225, G = 9.81, D2R = Math.PI / 180;
 export const PLANES = {
   trainer: {
     name: '練習機', mass: 1.1, S: 0.254, span: 1.22, length: 0.95, detail: 'trainer', wingY: 0.12,
-    CL0: 0.28, CLa: 4.8, trimA: 0.5, stall: 14, CD0: 0.04, k: 0.06,
-    thrust: 12, vprop: 30, rates: [150, 180, 90], vref: 14,
-    stabP: 9, stabY: 6, dihedral: 3.0, propwash: 0.35, resp: 6, autoR: 0.35,
+    CL0: 0.28, CLa: 4.8, trimA: -0.9, stall: 14, CD0: 0.04, k: 0.06,
+    thrust: 12, vprop: 30, rates: [110, 150, 90], vref: 14,
+    stabP: 24, stabY: 6, dihedral: 3.0, propwash: 0.35, resp: 6, autoR: 0.35,
     color: 0xffc41f, accent: 0xd32f2f, highWing: true,
   },
   sport: {
@@ -116,7 +116,7 @@ export class FlightModel {
     if (this.stabActive) {
       const e = new Euler().setFromQuaternion(this.q, 'YXZ');
       const maxB = 50 * D2R, maxP = 30 * D2R;
-      const desB = -ctrl.ail * maxB / Math.max(0.3, ctrl.rate || 1), desP = ctrl.ele * maxP / Math.max(0.3, ctrl.rate || 1);
+      const desB = -ctrl.ail * maxB / Math.max(0.3, ctrl.rate || 1), desP = ctrl.ele * maxP / Math.max(0.3, ctrl.rate || 1) + Math.min(0.5, Math.abs(e.z)) * 0.12;
       const lim = (v, m) => Math.max(-m, Math.min(m, v));
       const auth = Math.max(Math.min(aA, 1), 0.35);
       target.z = lim((lim(desB, maxB) - e.z) * 3.2, s.rates[1] * D2R) * auth;
@@ -137,7 +137,7 @@ export class FlightModel {
       const vh = air.clone().divideScalar(V);
       if (this.prevVh) {
         const wf = this.prevVh.clone().cross(vh).divideScalar(dt).applyQuaternion(this.q.clone().invert());
-        if (wf.length() < 4) { target.x += wf.x; target.y += wf.y; }
+        if (wf.length() < 4) { target.x += wf.x * (this.stabActive ? 0 : 0.6); target.y += wf.y; }
       }
       this.prevVh = vh;
     } else this.prevVh = null;

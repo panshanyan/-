@@ -330,11 +330,12 @@ function chaseCam(cam, st, dt) {
   const hz = new THREE.Vector3(st.fwd.x, 0, st.fwd.z);
   if (hz.lengthSq() < 0.01) hz.set(0, 0, -1);
   hz.normalize();
-  const dist = 3.2 + fm.spec.span;
+  const pip = cam === pipCam;
+  const dist = pip ? fm.spec.span * visScale() * 1.15 : (3.2 + fm.spec.span) * visScale();
   const target = p.clone().addScaledVector(st.fwd, -dist * 0.75).addScaledVector(hz, -dist * 0.35);
-  target.y += 1.0 + fm.spec.span * 0.3;
-  if (!st.init) st.pos.copy(target);
-  st.pos.lerp(target, 1 - Math.exp(-6 * dt));
+  target.y += pip ? dist * 0.28 : 1.0 + fm.spec.span * 0.3;
+  if (!st.init || pip) st.pos.copy(target); // 小窗：緊貼機尾，不延遲
+  else st.pos.lerp(target, 1 - Math.exp(-6 * dt));
   const gh = terrainHeight(st.pos.x, st.pos.z) + 0.5;
   if (st.pos.y < gh) st.pos.y = gh;
   cam.position.copy(st.pos);
@@ -379,7 +380,9 @@ function runCam(mode, cam, st, dt) {
 }
 function updateCamera(dt) {
   runCam(cfg.cam, camera, camState, dt);
-  if (pipActive()) runCam(cfg.pip === 1 ? 3 : 2, pipCam, pipState, dt);
+  // 考照模式的第三人稱小窗改用機身後方追尾視角（搭配航線指示）
+  if (pipActive()) runCam(cfg.pip === 1 ? (game.mode === 'exam' ? 0 : 3) : 2, pipCam, pipState, dt);
+  if (game.mode === 'exam') updateGuides(dt);
 }
 const pipActive = () => cfg.cam === 1 && cfg.pip > 0;
 function pipRect() {
@@ -405,6 +408,7 @@ function renderAll() {
   renderer.render(scene, camera);
   if (pipActive()) {
     const r = pipRect();
+    $('pip').querySelector('span').textContent = game.mode === 'exam' && cfg.pip === 1 ? '機尾視角 · 航線指示' : PIPS[cfg.pip] + '視角';
     mdl.group.visible = showPlane && cfg.pip !== 2;
     const sc = smoke.mat.uniforms.scale.value;
     smoke.mat.uniforms.scale.value = r.h / (2 * Math.tan(pipCam.fov * Math.PI / 360));
@@ -424,6 +428,74 @@ function setCam(m) {
   $('bPip').textContent = '小窗：' + PIPS[cfg.pip];
   camState.init = pipState.init = false;
   layoutPip();
+}
+
+// ---------- 考照航線指示（只畫在小窗：圖層 1）----------
+const guides = (() => {
+  const G = new THREE.Group(); scene.add(G);
+  const ALT = 30;
+  // 靠近鏡頭的部分淡出，避免飛在航線上時被管子擋住畫面
+  const fadeMat = (color, op) => new THREE.ShaderMaterial({
+    transparent: true, depthWrite: false,
+    uniforms: { c: { value: new THREE.Color(color) }, op: { value: op } },
+    vertexShader: 'varying float d; void main(){ vec4 mv = modelViewMatrix * vec4(position,1.); d = -mv.z; gl_Position = projectionMatrix * mv; }',
+    fragmentShader: 'uniform vec3 c; uniform float op; varying float d; void main(){ gl_FragColor = vec4(c, op * smoothstep(12., 32., d) * (1. - smoothstep(350., 600., d))); }',
+  });
+  const tubeM = fadeMat(0x3ff0ff, 0.75), arrowM = fadeMat(0xffffff, 0.9);
+  const toLayer = o => o.traverse(c => c.layers.set(1));
+  function pathGroup(pts, closed) {
+    const grp = new THREE.Group();
+    const curve = new THREE.CatmullRomCurve3(pts.map(([x, z]) => new THREE.Vector3(x, ALT, z)), closed, 'centripetal');
+    grp.add(new THREE.Mesh(new THREE.TubeGeometry(curve, 400, 0.7, 8, closed), tubeM));
+    const L = curve.getLength(), n = Math.floor(L / 18), cg = new THREE.ConeGeometry(1.6, 3.4, 3); cg.rotateX(Math.PI / 2);
+    for (let i = 0; i < n; i++) {
+      const t = i / n, p = curve.getPointAt(t), d = curve.getTangentAt(t);
+      const a = new THREE.Mesh(cg, arrowM); a.position.copy(p); a.lookAt(p.clone().sub(d)); grp.add(a);
+    }
+    toLayer(grp); grp.visible = false; G.add(grp);
+    return grp;
+  }
+  // 左航線矩形（圓角）：第五邊→第一邊往北、第二邊往西、第三邊往南、第四邊往東
+  const rc = 30, X = PAT.xFar, N = PAT.zN, Sz = PAT.zS;
+  const pattern = pathGroup([[0, Sz - rc], [0, 0], [0, N + rc], [-rc * 0.3, N + rc * 0.3], [-rc, N], [X + rc, N], [X + rc * 0.3, N + rc * 0.3], [X, N + rc], [X, Sz - rc], [X + rc * 0.3, Sz - rc * 0.3], [X + rc, Sz], [-rc, Sz], [-rc * 0.3, Sz - rc * 0.3]], true);
+  // 水平 8 字：從 P5 往西進入，先左轉南圈再右轉北圈
+  const e8 = [];
+  for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; e8.push([C8.x - C8.r * Math.sin(a), C8.z + C8.r - C8.r * Math.cos(a)]); }
+  for (let i = 0; i < 24; i++) { const a = i / 24 * Math.PI * 2; e8.push([C8.x - C8.r * Math.sin(a), C8.z - C8.r + C8.r * Math.cos(a)]); }
+  const eight = pathGroup(e8, true);
+  // 下一個目標點：黃色光圈
+  const ring = new THREE.Mesh(new THREE.TorusGeometry(5, 0.45, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffd54f, transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
+  toLayer(ring); G.add(ring);
+  pipCam.layers.enable(1);
+  return { pattern, eight, ring, ALT };
+})();
+function guideTarget() {
+  const it = ITEMS[examiner.item], p = examiner.phase, X = PAT.xFar, N = PAT.zN, Sz = PAT.zS, A = guides.ALT;
+  if (!it || !examiner.active) return null;
+  const T = {
+    takeoff: [null, [0, A, N], [X, A, N], [X, A, 0]],
+    pattern: [[X, A, Sz], [0, A, Sz], [0, A, 0], [0, A, N], [X, A, N], [X, A, -40]],
+    eight: [[C8.x, A, C8.z], [C8.x, A, C8.z], [C8.x, A, C8.z]],
+    landing: [[X, A, -40], [0, A, Sz], [0, 2, 45]],
+    emergency: [[0, A, N], null, null, [0, 2, 45]],
+  }[it.id];
+  return T && T[p] ? T[p] : null;
+}
+let guideT = 0;
+function updateGuides(dt) {
+  guideT += dt;
+  const it = examiner.active ? ITEMS[examiner.item] : null;
+  const id = it && it.id;
+  guides.pattern.visible = ['takeoff', 'pattern', 'landing', 'emergency'].includes(id);
+  guides.eight.visible = id === 'eight';
+  const t = guideTarget();
+  guides.ring.visible = !!t;
+  if (t) {
+    guides.ring.position.set(...t);
+    const d = new THREE.Vector3(...t).sub(fm.pos); d.y = 0;
+    if (d.lengthSq() > 1) guides.ring.lookAt(guides.ring.position.clone().add(d));
+    guides.ring.scale.setScalar(1 + 0.12 * Math.sin(guideT * 5));
+  }
 }
 
 // ---------- HUD ----------
@@ -547,7 +619,7 @@ function show(id) {
   if (id === 'home') $('tutProg').textContent = LESSONS.filter(l => cfg.done[l.id]).length + '/' + LESSONS.length;
 }
 function goHome() {
-  pause(); game.mode = null; layoutPip(); tutor.stop(); examiner.stop(); $('mini').style.display = 'none';
+  pause(); game.mode = null; layoutPip(); tutor.stop(); guides.pattern.visible = guides.eight.visible = guides.ring.visible = false; examiner.stop(); $('mini').style.display = 'none';
   $('menu').classList.remove('show'); $('dlg').classList.remove('show'); $('tut').classList.remove('show');
   setHL(null);
   show('home');
@@ -939,4 +1011,4 @@ goHome();
 resize();
 updateCamera(0.016);
 requestAnimationFrame(frame);
-window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg, game, examiner, camera, scene, renderer, pause: () => pause(), get mdl() { return mdl; } };
+window.__dbg = { get fm() { return fm; }, input, sticks, setThrottleStick, cfg, game, examiner, camera, pipCam, scene, renderer, pause: () => pause(), get mdl() { return mdl; } };
