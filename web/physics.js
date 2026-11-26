@@ -9,7 +9,7 @@ export const PLANES = {
     name: '練習機', mass: 1.1, S: 0.254, span: 1.22, length: 0.95, detail: 'trainer', wingY: 0.12,
     CL0: 0.28, CLa: 4.8, trimA: 0.5, stall: 14, CD0: 0.04, k: 0.06,
     thrust: 12, vprop: 30, rates: [150, 180, 90], vref: 14,
-    stabP: 9, stabY: 6, dihedral: 3.0, propwash: 0.35, resp: 6, autoP: 0.9, autoR: 0.8,
+    stabP: 9, stabY: 6, dihedral: 3.0, propwash: 0.35, resp: 6, autoR: 0.35,
     color: 0xffc41f, accent: 0xd32f2f, highWing: true,
   },
   sport: {
@@ -23,7 +23,7 @@ export const PLANES = {
     name: '滑翔機', mass: 1.1, S: 0.36, span: 2.0, length: 1.2,
     CL0: 0.45, CLa: 5.2, trimA: 0, stall: 12, CD0: 0.022, k: 0.035,
     thrust: 7, vprop: 26, rates: [110, 110, 70], vref: 12,
-    stabP: 10, stabY: 7, dihedral: 4.5, propwash: 0.25, resp: 5, autoP: 0.3, autoR: 0.3,
+    stabP: 10, stabY: 7, dihedral: 4.5, propwash: 0.25, resp: 5, autoR: 0.3,
     color: 0xffffff, accent: 0xff6d00, highWing: true, glider: true, wingY: 0.06,
   },
 };
@@ -110,6 +110,23 @@ export class FlightModel {
       -ctrl.rud * s.rates[2] * D2R * aP,
       -ctrl.ail * s.rates[1] * D2R * aA,
     );
+    // 水平自穩模式（姿態模式）：副翼／升降舵搖桿改為指定坡度與俯仰角，放開自動改平
+    // 全手動模式：搖桿直接控制舵面（角速率），飛機不會自己改平
+    this.stabActive = !!ctrl.stab && !this.onGround;
+    if (this.stabActive) {
+      const e = new Euler().setFromQuaternion(this.q, 'YXZ');
+      const maxB = 50 * D2R, maxP = 30 * D2R;
+      const desB = -ctrl.ail * maxB / Math.max(0.3, ctrl.rate || 1), desP = ctrl.ele * maxP / Math.max(0.3, ctrl.rate || 1);
+      const lim = (v, m) => Math.max(-m, Math.min(m, v));
+      const auth = Math.max(Math.min(aA, 1), 0.35);
+      target.z = lim((lim(desB, maxB) - e.z) * 3.2, s.rates[1] * D2R) * auth;
+      target.x = lim((lim(desP, maxP) - e.x) * 2.6, s.rates[0] * D2R) * Math.max(Math.min(aP, 1), 0.35);
+    }
+    // 上反角效應：全手動時練習機／滑翔機也會非常緩慢地自己改平坡度（不影響俯仰）
+    if (!this.stabActive && !this.onGround && s.autoR) {
+      const e = new Euler().setFromQuaternion(this.q, 'YXZ');
+      if (Math.abs(e.z) < 1.3) target.z += -e.z * s.autoR * Math.max(0, 1 - Math.abs(ctrl.ail) * 3) * Math.min(aA, 1);
+    }
     // 地面：前輪轉向（低速可原地小半徑掉頭，高速時轉向量遞減）
     if (this.onGround) {
       const gs = Math.hypot(this.vel.x, this.vel.z);
@@ -124,14 +141,6 @@ export class FlightModel {
       }
       this.prevVh = vh;
     } else this.prevVh = null;
-    // 練習機／滑翔機：放開搖桿會慢慢自動改平
-    if (!this.onGround && (s.autoP || s.autoR)) {
-      const e = new Euler().setFromQuaternion(this.q, 'YXZ');
-      if (Math.abs(e.z) < 1.4) {
-        target.x += -e.x * (s.autoP || 0) * Math.max(0, 1 - Math.abs(ctrl.ele) * 3) * aA;
-        target.z += -e.z * (s.autoR || 0) * Math.max(0, 1 - Math.abs(ctrl.ail) * 3) * aA;
-      }
-    }
     const damp = [Math.max(aP, 0.15), Math.max(aP, 0.15), Math.max(aA, 0.15)];
     const acc = new Vector3(
       (target.x - this.w.x) * s.resp * damp[0] - s.stabP * (alpha - (s.trimA || 0) * D2R) * qn,

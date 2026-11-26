@@ -12,7 +12,7 @@ const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
 const DEF = { paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
-  pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false] } };
+  pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false], mode: [-1, false] }, fmode: 'stab' };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
 cfg.map = Object.assign({}, DEF.map, cfg.map);
@@ -265,6 +265,11 @@ function readInput() {
   }
   const rate = cfg.rate / 100;
   input.thr = clamp(thr, 0, 1);
+  // 飛行模式：遙控器開關（若有設定）優先，否則用畫面上的選擇
+  let st = cfg.fmode === 'stab';
+  if (padOn && cfg.map.mode[0] >= 0) { const v = padAxes[cfg.map.mode[0]] || 0; st = (cfg.map.mode[1] ? -v : v) > 0; }
+  if (st !== input.stab) { input.stab = st; updateModeBtn(); }
+  input.rate = cfg.rate / 100;
   input.ail = expo(clamp(ail, -1, 1)) * rate;
   input.ele = expo(clamp(ele, -1, 1)) * rate;
   input.rud = expo(clamp(rud, -1, 1)) * rate;
@@ -475,7 +480,7 @@ function frame(now) {
   if (game.mode === 'tut' && fm.event) tutor.event(fm, fm.event);
   if (game.mode === 'tut') tutor.update(dt, fm, input);
   if (game.mode === 'exam' && fm.event) examiner.event(fm, fm.event);
-  if (game.mode === 'exam') { examiner.update(dt, fm, input); drawMini(dt); }
+  if (game.mode === 'exam') { examiner.update(dt, fm, input); drawMini(dt); if (examiner.active && !fm.onGround) examModes.add(!!input.stab); }
   if (fm.event) {
     const ev = fm.event; fm.event = null;
     if (ev.type === 'crash') {
@@ -648,6 +653,7 @@ $('mTut').onclick = () => show('tutList');
 $('mExam').onclick = openExam;
 
 // ---------- 考照模式 ----------
+const examModes = new Set();
 function openExam() { show('examList'); }
 function buildExamList() {
   cfg.practice = cfg.practice || {};
@@ -664,7 +670,7 @@ function buildExamList() {
 function openTest() {
   const list = ITEMS.map(it => `<b>${it.code}. ${it.name}</b><br><span style="opacity:.75;font-size:13px">${it.brief}</span>`).join('<br>');
   dlg('📋 測驗模式：完整術科（基本級）', '', [['返回', () => show('examList')], ['開始測驗', () => startExam(null), true]],
-    `<span style="opacity:.75;font-size:13px">依民航局「無人飛機專業操作證術科測驗基準」程序連續進行：A 飛行前檢查 → B~F 術科 → G 飛行後檢查。</span><br>${list}<br><span style="opacity:.75;font-size:13px">重大違失（墜機、超越應考人後方、通過頭頂）立即不合格。各項 70 分以上為通過；航高 ${BAND[0]}–${BAND[1]} m 等數值為模擬設定。</span>`);
+    `<span style="opacity:.75;font-size:13px">依民航局「無人飛機專業操作證術科測驗基準」程序連續進行：A 飛行前檢查 → B~F 術科 → G 飛行後檢查。</span><br>${list}<br><span style="opacity:.75;font-size:13px">定翼機術科建議使用「全手動模式」應考（成績單會記錄飛行模式）。重大違失（墜機、超越應考人後方、通過頭頂）立即不合格。各項 70 分以上為通過；航高 ${BAND[0]}–${BAND[1]} m 等數值為模擬設定。</span>`);
 }
 function openPractice(i) {
   const it = ITEMS[i];
@@ -696,6 +702,7 @@ function startExam(single = null) {
     $('bReset').style.display = single !== null ? '' : 'none'; $('bReset').textContent = '重來';
     $('tut').classList.add('show'); $('mini').style.display = 'block';
     trail.length = 0;
+    examModes.clear();
     examiner.start(single);
     resume();
   };
@@ -739,7 +746,7 @@ const examiner = new Examiner({
       cfg.examBest = Math.max(cfg.examBest || 0, total); if (ok) cfg.examPassed = true; save();
       const rows = res.map(r => `<tr><td>${r.code}. ${r.name}</td><td class="sc">${r.score ?? '—'}</td><td>${r.score === null ? '⏸' : r.pass ? '✅' : '❌'}</td></tr><tr><td colspan="3" class="nt">${r.notes.join('、')}</td></tr>`).join('');
       dlg(ok ? '🎉 術科測驗合格！' : '術科測驗不合格', '', [['考照選單', () => { goHome(); show('examList'); }], ['再考一次', () => startExam(null), true]],
-        `<table class="rep">${rows}</table><div style="margin-top:8px">總分 <b>${total}</b> / ${ITEMS.length * 100}　·　最佳 ${cfg.examBest}</div>`);
+        `<table class="rep">${rows}</table><div style="margin-top:8px">總分 <b>${total}</b> / ${ITEMS.length * 100}　·　最佳 ${cfg.examBest}　·　飛行模式：${examModes.size > 1 ? '混用' : examModes.has(true) ? '水平自穩' : '全手動'}</div>`);
     };
     setTimeout(() => {
       if (fatal) finish();
@@ -823,6 +830,7 @@ function buildMenu() {
       el.appendChild(b);
     });
   };
+  opts('fmodeSel', [['stab', '水平自穩模式', '放開副翼／升降會自動改平，坡度限 50°、俯仰限 30°（類似教練機的自穩）'], ['manual', '全手動模式', '搖桿直接控制舵面角速率，不會自動改平，考照建議用這個練']], 'fmode', () => {});
   opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
   opts('pipSel', [[1, '第三人稱', '水平朝操作者前方、角度固定，飛機占滿小窗'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
   $('pipRow').style.opacity = cfg.cam === 1 ? 1 : 0.45;
@@ -855,10 +863,10 @@ function buildMenu() {
 
 function buildMap() {
   const tb = $('mapTbl'); tb.innerHTML = '';
-  const names = { ail: '副翼', ele: '升降', thr: '油門', rud: '方向' };
-  for (const f of ['ail', 'ele', 'thr', 'rud']) {
+  const names = { ail: '副翼', ele: '升降', thr: '油門', rud: '方向', mode: '自穩開關' };
+  for (const f of ['ail', 'ele', 'thr', 'rud', 'mode']) {
     const tr = document.createElement('tr');
-    const opts = AXN.map((n, i) => `<option value="${i}" ${cfg.map[f][0] === i ? 'selected' : ''}>${n}</option>`).join('');
+    const opts = (f === 'mode' ? `<option value="-1" ${cfg.map[f][0] < 0 ? 'selected' : ''}>不使用</option>` : '') + AXN.map((n, i) => `<option value="${i}" ${cfg.map[f][0] === i ? 'selected' : ''}>${n}</option>`).join('');
     tr.innerHTML = `<td>${names[f]}</td><td><select>${opts}</select></td><td><label><input type="checkbox" ${cfg.map[f][1] ? 'checked' : ''}> 反向</label></td><td style="width:40%"><div class="bar"><i></i></div></td><td><button class="btn" style="height:32px">偵測</button></td>`;
     const [sel, chk, btn] = [tr.querySelector('select'), tr.querySelector('input'), tr.querySelector('button')];
     sel.onchange = () => { cfg.map[f][0] = +sel.value; save(); };
@@ -891,7 +899,7 @@ function menuTick() {
   $('padInfo').textContent = ok ? '已連接：' + (padName || 'USB 遙控器') : '尚未偵測到遙控器';
   for (const tr of $('mapTbl').children) {
     const f = tr.dataset.f, [i, inv] = cfg.map[f];
-    let v = ok ? (padAxes[i] || 0) : 0; if (inv) v = -v;
+    let v = ok && i >= 0 ? (padAxes[i] || 0) : 0; if (inv) v = -v;
     tr.querySelector('.bar i').style.width = ((v + 1) * 50) + '%';
   }
 }
@@ -907,6 +915,13 @@ $('bMenu').onclick = () => { pause(); $('menu').classList.add('show'); $('bGo').
 $('bHome').onclick = goHome;
 $('bReset').onclick = () => game.mode === 'tut' ? startLesson(game.lesson) : game.mode === 'exam' ? (game.single !== null && startExam(game.single)) : resetPlane(false);
 $('bAir').onclick = () => resetPlane(true);
+function updateModeBtn() {
+  const b = $('bMode'); if (!b) return;
+  b.textContent = input.stab ? '自穩' : '手動';
+  b.classList.toggle('on', !!input.stab);
+}
+$('bMode').onclick = () => { cfg.fmode = cfg.fmode === 'stab' ? 'manual' : 'stab'; save(); buildMenu(); toast(cfg.fmode === 'stab' ? '水平自穩模式' : '全手動模式', cfg.fmode === 'stab' ? '放開副翼／升降搖桿會自動改平，坡度與俯仰角有上限' : '搖桿直接控制舵面，飛機不會自己改平', 2.2); };
+updateModeBtn();
 $('bSmoke').onclick = () => { smoke.on = !smoke.on; $('bSmoke').classList.toggle('on', smoke.on); };
 $('bCam').onclick = () => { setCam((cfg.cam + 1) % 3); buildMenu(); };
 $('bPip').onclick = () => { cfg.pip = (cfg.pip + 1) % 3; setCam(cfg.cam); buildMenu(); };

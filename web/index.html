@@ -117,6 +117,7 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
   <div id="btns">
     <button class="btn" id="bCam">視角</button>
     <button class="btn" id="bPip">小窗</button>
+    <button class="btn" id="bMode">自穩</button>
     <button class="btn" id="bSmoke">煙</button>
     <button class="btn" id="bAir">空中</button>
     <button class="btn" id="bReset">重置</button>
@@ -143,7 +144,7 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
   <div class="card">
     <button class="back" id="tlBack">‹ 返回</button>
     <h1>🎓 新手教學</h1>
-    <div class="mini">建議依序完成。教學使用練習機，視角依照設定（建議地面目視）。</div>
+    <div class="mini">建議依序完成。教學使用練習機，建議先用「水平自穩模式」學，熟練後再切「全手動模式」（右上角按鈕）。</div>
     <div class="lessons" id="lessons"></div>
   </div>
 </div>
@@ -175,6 +176,9 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
     <div class="row" id="planeSel"></div>
     <div class="row" style="gap:6px"><span class="mini" style="min-width:76px">練習機塗裝</span><div id="paintSel" style="display:flex;gap:8px;flex-wrap:wrap"></div></div>
 
+    <h3>飛行模式</h3>
+    <div class="row" id="fmodeSel"></div>
+
     <h3>操作視角</h3>
     <div class="row" id="camSel"></div>
     <div id="pipRow"><h3>地面目視模式：正下方小視窗</h3>
@@ -193,7 +197,7 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
     <label class="sl"><span>引擎聲音</span><input type="range" id="sVol" min="0" max="100" step="10"><output></output></label>
 
     <h3>USB 遙控器／手把</h3>
-    <div class="mini">把遙控器用 USB OTG 接上手機並選「搖桿 (Joystick)」模式。按「偵測」後撥動對應的搖桿即可自動對應。</div>
+    <div class="mini">把遙控器用 USB OTG 接上手機並選「搖桿 (Joystick)」模式。按「偵測」後撥動對應的搖桿即可自動對應。「自穩開關」可指定遙控器上的一個開關切換飛行模式（正值＝自穩）。</div>
     <table class="map" id="mapTbl"></table>
     <div class="row"><button class="btn" id="bPad">遙控器：關</button><span class="mini" id="padInfo">尚未偵測到遙控器</span></div>
 

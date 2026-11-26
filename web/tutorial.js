@@ -43,7 +43,7 @@ export const LESSONS = [
   {
     id: 'ail', name: '副翼', icon: '🔄', desc: '控制左右傾斜，壓坡度與轉彎',
     setup: { air: true, x: 0, y: 60, z: 150, heading: 0, thr: 0.5 },
-    intro: '副翼（Aileron）控制飛機左右傾斜（滾轉）。它在 {ail}。\n\n飛機傾斜後升力也跟著傾斜，就會轉彎。練習機有自動回正，放開副翼會慢慢改平；特技機則會維持坡度，要主動往反方向壓回來。轉彎時要持續壓住副翼。',
+    intro: '副翼（Aileron）控制飛機左右傾斜（滾轉）。它在 {ail}。\n\n飛機傾斜後升力也跟著傾斜，就會轉彎。「水平自穩模式」下，搖桿壓多少就傾斜多少、放開會自動改平；「全手動模式」下放開會維持坡度，要主動往反方向壓回來改平。轉彎時要持續壓住副翼。右上角的「自穩／手動」按鈕可以切換。',
     steps: [
       { text: '往右壓副翼，讓飛機向右傾斜 30°', hl: [['ail', 'right']], check: c => -c.roll >= 25, hint: c => `坡度 ${Math.abs(c.roll).toFixed(0)}°` },
       { text: '往左壓一點，把機翼改平（10° 以內）並維持 1 秒', hl: [['ail', 'left']], check: c => hold(c, Math.abs(c.roll) < 10, 1), hint: c => `坡度 ${Math.abs(c.roll).toFixed(0)}°` },
