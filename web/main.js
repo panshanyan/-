@@ -5,17 +5,18 @@ import { buildWorld, PILOT, SUN_DIR } from './world.js';
 import { buildPlane } from './model.js';
 import { PAINTS } from './trainer.js';
 import { LESSONS, Tutor } from './tutorial.js';
-import { ITEMS, Examiner, PAT, C8, BAND, PRE_CHECK, POST_CHECK } from './exam.js';
+import { ITEMS, Examiner, PAT, C8, BAND, PRE_CHECK, POST_CHECK, isPractice, phaseText } from './exam.js';
 
 const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
-const DEF = { site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
+const DEF = { assist: true, as: { stall: true, coord: true, roll: true, reverse: false, marker: true }, site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
   pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false], mode: [-1, false] }, fmode: 'stab' };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
 cfg.map = Object.assign({}, DEF.map, cfg.map);
+cfg.as = Object.assign({}, DEF.as, cfg.as);
 const save = () => { try { localStorage.setItem('rcsim', JSON.stringify(cfg)); } catch (e) {} };
 
 // ---------- 渲染 ----------
@@ -155,6 +156,9 @@ const smoke = (() => {
 
 // ---------- 輸入 ----------
 const input = { thr: 0, ail: 0, ele: 0, rud: 0, thrHold: 0 };
+let revOn = false;
+// 測驗模式（正式考試）不提供輔助
+function assistOn() { return cfg.assist && !(game.mode === 'exam' && game.single === null); }
 const sticks = {
   L: { el: $('stickL'), x: 0, y: 0, id: null },
   R: { el: $('stickR'), x: 0, y: 0, id: null },
@@ -270,6 +274,31 @@ function readInput() {
   if (padOn && cfg.map.mode[0] >= 0) { const v = padAxes[cfg.map.mode[0]] || 0; st = (cfg.map.mode[1] ? -v : v) > 0; }
   if (st !== input.stab) { input.stab = st; updateModeBtn(); }
   input.rate = cfg.rate / 100;
+  // ---- 輔助模式 ----
+  const A = assistOn();
+  input.assistStall = A && cfg.as.stall;
+  input.assistCoord = A && cfg.as.coord;
+  if (fm && A) {
+    const e = fm.euler();
+    // 滑跑時自動保持跑道方向與中心線（沒有主動打方向舵時）
+    if (cfg.as.roll && fm.onGround && input.thr > 0.2 && Math.abs(input.rud) < 0.15 && Math.abs(fm.pos.x) < 20 && Math.abs(fm.pos.z) < 75) {
+      const wrap = a => Math.atan2(Math.sin(a), Math.cos(a));
+      const north = Math.abs(wrap(e.y)) < Math.PI / 2;
+      const axis = north ? 0 : Math.PI;
+      if (Math.abs(wrap(e.y - axis)) < 0.7) {
+        const des = axis + Math.max(-0.25, Math.min(0.25, (north ? 1 : -1) * fm.pos.x * 0.06));
+        input.rud = clamp(wrap(e.y - des) * 3, -1, 1);
+      }
+    }
+    // 飛機朝自己飛來時，副翼／方向舵左右自動反向（地面目視）
+    if (cfg.as.reverse && cfg.cam === 1 && !fm.onGround) {
+      const f = new THREE.Vector3(-Math.sin(e.y), 0, -Math.cos(e.y));
+      const toP = new THREE.Vector3(PILOT.x - fm.pos.x, 0, PILOT.z - fm.pos.z).normalize();
+      const d = f.dot(toP);
+      if (d > 0.35) revOn = true; else if (d < 0.15) revOn = false;
+    } else revOn = false;
+    if (revOn) { input.ail = -input.ail; input.rud = -input.rud; }
+  } else revOn = false;
   input.ail = expo(clamp(ail, -1, 1)) * rate;
   input.ele = expo(clamp(ele, -1, 1)) * rate;
   input.rud = expo(clamp(rud, -1, 1)) * rate;
@@ -467,7 +496,7 @@ const guides = (() => {
   const ring = new THREE.Mesh(new THREE.TorusGeometry(5, 0.45, 8, 40), new THREE.MeshBasicMaterial({ color: 0xffd54f, transparent: true, opacity: 0.9, depthWrite: false, fog: false }));
   toLayer(ring); G.add(ring);
   pipCam.layers.enable(1);
-  return { pattern, eight, ring, ALT };
+  return { pattern, eight, ring, ALT, G };
 })();
 function guideTarget() {
   const it = ITEMS[examiner.item], p = examiner.phase, X = PAT.xFar, N = PAT.zN, Sz = PAT.zS, A = guides.ALT;
@@ -484,6 +513,9 @@ function guideTarget() {
 let guideT = 0;
 function updateGuides(dt) {
   guideT += dt;
+  // 練習模式不指定高度：航線跟著飛機目前高度顯示
+  const gy = isPractice() ? Math.max(5, fm.pos.y) - guides.ALT : 0;
+  guides.G.position.y += (gy - guides.G.position.y) * Math.min(1, dt * 2);
   const it = examiner.active ? ITEMS[examiner.item] : null;
   const id = it && it.id;
   guides.pattern.visible = ['takeoff', 'pattern', 'landing', 'emergency'].includes(id);
@@ -491,11 +523,30 @@ function updateGuides(dt) {
   const t = guideTarget();
   guides.ring.visible = !!t;
   if (t) {
-    guides.ring.position.set(...t);
+    guides.ring.position.set(t[0], t[1] < 5 ? t[1] - guides.G.position.y : t[1], t[2]);
     const d = new THREE.Vector3(...t).sub(fm.pos); d.y = 0;
     if (d.lengthSq() > 1) guides.ring.lookAt(guides.ring.position.clone().add(d));
     guides.ring.scale.setScalar(1 + 0.12 * Math.sin(guideT * 5));
   }
+}
+
+// ---------- 輔助：飛機方向標記 ----------
+const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
+function updateMarker() {
+  const el = $('mark');
+  const show = assistOn() && cfg.as.marker && cfg.cam !== 2 && !fm.crashed && !paused;
+  if (!show) { el.style.display = 'none'; return; }
+  _v1.copy(fm.pos).project(camera);
+  if (_v1.z > 1) { el.style.display = 'none'; return; }
+  const W = window.innerWidth, H = window.innerHeight;
+  const sx = (_v1.x + 1) / 2 * W, sy = (1 - _v1.y) / 2 * H;
+  _v2.set(0, 0, -3 * visScale()).applyQuaternion(fm.q).add(fm.pos).project(camera);
+  const ang = Math.atan2(-(_v2.y - _v1.y) * H, (_v2.x - _v1.x) * W);
+  el.style.display = 'block';
+  el.style.left = sx + 'px'; el.style.top = sy + 'px';
+  el.querySelector("i").style.transform = `rotate(${ang}rad)`;
+  const alt = fm.pos.y - terrainHeight(fm.pos.x, fm.pos.z) - fm.gearH;
+  el.querySelector('b').textContent = `${Math.max(0, alt).toFixed(0)} m` + (revOn ? ' · ↔反向' : '');
 }
 
 // ---------- HUD ----------
@@ -601,6 +652,7 @@ function frame(now) {
   updateDebris(dt);
   updateCamera(dt);
   updateHud(dt);
+  updateMarker();
   drawSticks();
   updateAudio(camera.position.distanceTo(fm.pos));
   renderAll();
@@ -793,9 +845,10 @@ const examiner = new Examiner({
   phase(i, it, p) {
     $('tutL').textContent = `${game.single !== null ? '練習' : '測驗'} · ${it.code}. ${it.name}`;
     $('tutN').textContent = `${p + 1} / ${it.phases.length}`;
-    $('tutT').textContent = it.phases[p].text;
+    $('tutT').textContent = phaseText(it.phases[p]);
     $('tutH').textContent = '';
     if (p > 0) { const t = $('tut'); t.classList.add('good'); setTimeout(() => t.classList.remove('good'), 600); }
+    updateAssistBtn();
     if (/開始迫降/.test(it.phases[p].text)) { toast('⚠️ 監評：開始迫降！', '立即將油門收至怠速（15% 以下）', 3); if (navigator.vibrate) navigator.vibrate([100, 60, 100]); }
   },
   hint(t) { $('tutH').textContent = t; },
@@ -907,6 +960,16 @@ function buildMenu() {
       el.appendChild(b);
     });
   };
+  const asEl = $('assistSel'); asEl.innerHTML = '';
+  const AS = [['assist', '輔助模式總開關', '關閉時以下全部停用；正式測驗一律不提供'], ['stall', '失速保護', '速度太慢、拉太多時自動壓機頭'], ['coord', '自動協調轉彎', '自動配合方向舵，轉彎不側滑'], ['roll', '滑跑保持直線', '起飛滑跑自動對正跑道中心線'], ['reverse', '迎面左右反向', '飛機朝你飛來時，左右操作自動反過來（符合畫面方向）'], ['marker', '飛機方向標記', '主畫面在飛機旁顯示機頭方向與高度']];
+  for (const [k, t, d] of AS) {
+    const b = document.createElement('button');
+    const on = k === 'assist' ? cfg.assist : cfg.as[k];
+    b.className = 'opt' + (on ? ' sel' : ''); b.style.minWidth = '150px';
+    b.innerHTML = `<b>${on ? '☑' : '☐'} ${t}</b><span>${d}</span>`;
+    b.onclick = () => { if (k === 'assist') cfg.assist = !cfg.assist; else cfg.as[k] = !cfg.as[k]; save(); buildMenu(); updateAssistBtn(); };
+    asEl.appendChild(b);
+  }
   opts('fmodeSel', [['stab', '水平自穩模式', '放開副翼／升降會自動改平，坡度限 50°、俯仰限 30°（類似教練機的自穩）'], ['manual', '全手動模式', '搖桿直接控制舵面角速率，不會自動改平，考照建議用這個練']], 'fmode', () => {});
   opts('siteSel', [['zhutian', '竹田飛行場', '依空拍圖概略重建：水泥跑道、直升機坪、停車場、河道'], ['std', '標準練習場', '柏油跑道、機棚、池塘']], 'site', () => { toast('切換場地中…'); setTimeout(() => location.reload(), 300); });
   opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
@@ -1000,7 +1063,17 @@ function updateModeBtn() {
 }
 $('bMode').onclick = () => { cfg.fmode = cfg.fmode === 'stab' ? 'manual' : 'stab'; save(); buildMenu(); toast(cfg.fmode === 'stab' ? '水平自穩模式' : '全手動模式', cfg.fmode === 'stab' ? '放開副翼／升降搖桿會自動改平，坡度與俯仰角有上限' : '搖桿直接控制舵面，飛機不會自己改平', 2.2); };
 updateModeBtn();
-$('bSmoke').onclick = () => { smoke.on = !smoke.on; $('bSmoke').classList.toggle('on', smoke.on); };
+function updateAssistBtn() { const b = $('bAssist'); b.textContent = '輔助'; b.classList.toggle('on', assistOn()); }
+$('bAssist').onclick = () => {
+  if (game.mode === 'exam' && game.single === null) { toast('測驗模式不提供輔助', '正式考試請自行操作'); return; }
+  cfg.assist = !cfg.assist; save(); updateAssistBtn(); buildMenu();
+  toast(cfg.assist ? '輔助模式：開' : '輔助模式：關', cfg.assist ? assistDesc() : '所有輔助功能已關閉', 2.6);
+};
+function assistDesc() {
+  const n = { stall: '失速保護', coord: '自動協調轉彎', roll: '滑跑保持直線', reverse: '迎面左右反向', marker: '飛機方向標記' };
+  return Object.keys(n).filter(k => cfg.as[k]).map(k => n[k]).join('、') || '（未勾選任何項目）';
+}
+updateAssistBtn();
 $('bCam').onclick = () => { setCam((cfg.cam + 1) % 3); buildMenu(); };
 $('bPip').onclick = () => { cfg.pip = (cfg.pip + 1) % 3; setCam(cfg.cam); buildMenu(); };
 setCam(cfg.cam);

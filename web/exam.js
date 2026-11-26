@@ -7,6 +7,12 @@
 import { PILOT, RUNWAY } from './world.js';
 
 const D = 180 / Math.PI;
+// 練習模式：不指定高度，只要求飛機保持在看得清楚的目視範圍內
+let PRACTICE = false;
+export const isPractice = () => PRACTICE;
+export const VIS = { dist: 280, alt: 120 };
+const visOut = c => c.alt > VIS.alt || Math.hypot(c.fm.pos.x - PILOT.x, c.fm.pos.z - PILOT.z) > VIS.dist;
+export const phaseText = ph => PRACTICE ? ph.text.replace(/[，並]?保持(航高|高度)/g, '') : ph.text;
 export const BAND = [20, 40];                          // 航高保持範圍 (m)（基準未訂數值，模擬採 30±10 m）
 export const LINES = { center: PILOT.z, takeoff: 30, lane: 2 }; // 中線 z、起飛線距中線、範圍線半寬
 export const PAT = { xFar: -100, zN: -160, zS: 150 };  // 五邊航線
@@ -17,6 +23,7 @@ const d8 = p => Math.hypot(p.x - C8.x, p.z - C8.z);
 const wrapDeg = a => { while (a > 180) a -= 360; while (a < -180) a += 360; return a; };
 
 function trackAlt(c, S) {
+  if (PRACTICE) { if (!c.fm.onGround && visOut(c)) S.vis = (S.vis || 0) + c.dt; return; }
   if (!S.tracking) return;
   if (c.alt < BAND[0] || c.alt > BAND[1]) S.out = (S.out || 0) + c.dt;
   S.minAlt = Math.min(S.minAlt ?? 999, c.alt);
@@ -25,8 +32,9 @@ function trackSmooth(c, S) {
   if (Math.abs(c.roll) > 65) S.bigRoll = true;
   if (Math.abs(c.pitch) > 35) S.bigPitch = true;
 }
-const altHint = (c, S) => `高度 ${c.alt.toFixed(0)} m（保持 ${BAND[0]}–${BAND[1]}）` + (S.tracking ? ` · 超出 ${(S.out || 0).toFixed(1)} 秒` : '');
+const altHint = (c, S) => PRACTICE ? `高度 ${c.alt.toFixed(0)} m · 距離 ${Math.hypot(c.fm.pos.x - PILOT.x, c.fm.pos.z - PILOT.z).toFixed(0)} m` + (visOut(c) ? ' · ⚠️ 太遠了，飛回來！' : '') : `高度 ${c.alt.toFixed(0)} m（保持 ${BAND[0]}–${BAND[1]}）` + (S.tracking ? ` · 超出 ${(S.out || 0).toFixed(1)} 秒` : '');
 function altDeduct(S, n) {
+  if (PRACTICE) { const v = S.vis || 0; if (v > 1) { n.push(`飛出目視範圍 ${v.toFixed(1)} 秒`); return Math.min(40, Math.round(v * 5)); } return 0; }
   let p = 0; const out = S.out || 0;
   if (out > 0.5) { p += Math.min(50, Math.round(out * 4)); n.push(`航高超出範圍 ${out.toFixed(1)} 秒`); }
   if ((S.minAlt ?? 99) < 10) { p += 20; n.push('航高過低'); }
@@ -104,7 +112,7 @@ export const ITEMS = [
     score(S) {
       const n = []; let s = 100 - altDeduct(S, n) - smoothDeduct(S, n);
       if ((S.pass5 ?? 99) > 15) { s -= 15; n.push('第五邊未準確通過跑道正前方'); }
-      if (!n.length) n.push('航高穩定、五邊完整');
+      if (!n.length) n.push(PRACTICE ? '五邊完整、轉彎平順' : '航高穩定、五邊完整');
       return [s, n];
     },
   },
@@ -142,7 +150,7 @@ export const ITEMS = [
       }
       if (Math.abs(S.r1 - S.r2) / Math.max(S.r1, S.r2) > 0.35) { s -= 15; n.push('兩圈大小不對稱'); }
       if (Math.hypot(S.c1[0] - S.c2[0], S.c1[1] - S.c2[1]) < 0.4 * (S.r1 + S.r2)) { s -= 20; n.push('兩圈重疊，未分在 P5 兩側'); }
-      if (!n.length) n.push('兩圈對稱、高度穩定');
+      if (!n.length) n.push(PRACTICE ? '兩圈對稱' : '兩圈對稱、高度穩定');
       return [s, n];
     },
   },
@@ -179,7 +187,7 @@ export const ITEMS = [
     id: 'emergency', code: 'F', name: '緊急程序處置', setup: { z: zc + zT + 4, heading: 0 },
     brief: '第二次起飛後維持五邊航線。監評在空中任一位置下達指示時，口誦「開始迫降」並立即把油門收到怠速（15% 以下），自行判斷高度、距離與進場航線，安全返場降落於跑道上。',
     phases: [
-      { text: '第二次起飛：沿中心線起飛，加入五邊航線並保持航高', check: (c, S) => { laneTrack(c, S); if (!c.fm.onGround && c.alt > BAND[0] && c.fm.pos.z < PAT.zN + 60) { S.wait = 4 + Math.random() * 14; S.tracking = true; return true; } } },
+      { text: '第二次起飛：沿中心線起飛，加入五邊航線並保持航高', check: (c, S) => { laneTrack(c, S); if (!c.fm.onGround === false && c.alt > (PRACTICE ? 8 : BAND[0]) && c.fm.pos.z < PAT.zN + 60) { S.wait = 4 + Math.random() * 14; S.tracking = true; return true; } } },
       { text: '保持五邊航線，等待監評指示…', check: (c, S) => { S.wait -= c.dt; return S.wait <= 0; } },
       { text: '⚠️ 監評：「開始迫降」！立即把油門收到怠速（15% 以下）', enter: (c, st) => { st.t = 0; }, check: (c, S, st) => { st.t += c.dt; S.tracking = false; if (c.inp.thr <= 0.15) { S.react = st.t; S.idle = true; return true; } if (st.t > 3) S.slow = true; }, hint: c => `油門 ${Math.round(c.inp.thr * 100)}%` },
       { text: '怠速滑翔：判斷高度、距離與進場航線，返場降落於跑道上', check: (c, S) => { if (c.inp.thr > 0.2) S.addThr = true; return S.landed; }, hint: c => `高度 ${c.alt.toFixed(0)} m · 空速 ${(c.fm.airspeed * 3.6).toFixed(0)} km/h · 油門 ${Math.round(c.inp.thr * 100)}%` },
@@ -208,7 +216,7 @@ export class Examiner {
   get groundOnly() { return this.active && !!(ITEMS[this.item] && ITEMS[this.item].groundOnly); }
 
   // single：練習模式只考單一科目（傳入科目索引）
-  start(single = null) { this.single = single; this.active = true; this.finished = false; this.results = []; this.item = single ?? 0; this.beginItem(); }
+  start(single = null) { this.single = single; PRACTICE = single !== null; this.active = true; this.finished = false; this.results = []; this.item = single ?? 0; this.beginItem(); }
   beginItem() {
     const it = ITEMS[this.item];
     this.S = {}; this.phase = 0; this.t = 0; this.prevYaw = null;
@@ -234,6 +242,7 @@ export class Examiner {
     if (this.pending) { ph.enter && ph.enter(c, this.st); this.pending = false; }
     if (this.st.acc !== undefined) this.st.acc += dy;
     trackAlt(c, this.S);
+    if (PRACTICE && (this.S.vis || 0) > 10) return this.endItem(false, '飛機超出目視範圍太久');
     if (this.t > 360) return this.endItem(false, '超過時間限制');
     if (it.goAround) {
       const g = it.goAround(c, this.S, this.phase);

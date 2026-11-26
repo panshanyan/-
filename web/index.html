@@ -70,6 +70,10 @@ table.rep .sc{text-align:right;font-weight:800;font-variant-numeric:tabular-nums
 table.rep .nt{font-size:12px;opacity:.65;padding-bottom:7px;border-bottom:1px solid rgba(255,255,255,.08)}
 .swatch{width:44px;height:32px;border-radius:8px;border:2px solid rgba(255,255,255,.25);color:#fff;font-weight:800;text-shadow:0 1px 2px rgba(0,0,0,.6)}
 .swatch.sel{border-color:#fff;box-shadow:0 0 0 2px #ff7a1a}
+#mark{position:fixed;display:none;pointer-events:none;z-index:2;transform:translate(-50%,-50%)}
+#mark i{position:absolute;left:-30px;top:-30px;width:60px;height:60px;border:2px solid rgba(255,213,79,.85);border-radius:50%}
+#mark i::after{content:"";position:absolute;left:50px;top:21px;border-left:16px solid #ffd54f;border-top:9px solid transparent;border-bottom:9px solid transparent;filter:drop-shadow(0 1px 2px rgba(0,0,0,.6))}
+#mark b{position:absolute;left:36px;top:-44px;white-space:nowrap;font-size:12px;color:#ffe082;text-shadow:0 1px 3px #000}
 #warn{position:fixed;top:64px;left:50%;transform:translateX(-50%);font-weight:800;font-size:20px;color:#ff5252;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .2s;pointer-events:none}
 #toast{position:fixed;top:46%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0;transition:opacity .3s}
 #toast h2{margin:0;font-size:34px;text-shadow:0 3px 12px rgba(0,0,0,.6)}
@@ -118,7 +122,7 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
     <button class="btn" id="bCam">視角</button>
     <button class="btn" id="bPip">小窗</button>
     <button class="btn" id="bMode">自穩</button>
-    <button class="btn" id="bSmoke">煙</button>
+    <button class="btn" id="bAssist">輔助</button>
     <button class="btn" id="bAir">空中</button>
     <button class="btn" id="bReset">重置</button>
     <button class="btn" id="bMenu">☰</button>
@@ -164,6 +168,7 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
 <div id="dlg"><div class="box"><h2 id="dT"></h2><p id="dP"></p><div class="acts" id="dA"></div></div></div>
 <div id="tut"><div class="hd"><span id="tutL"></span><span id="tutN"></span></div><div class="tx" id="tutT"></div><div class="hi" id="tutH"></div></div>
 <canvas id="mini"></canvas>
+<div id="mark"><i></i><b></b></div>
 <div id="pip"><span></span></div>
 <div class="stick" id="stickL"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
 <div class="stick" id="stickR"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
@@ -178,6 +183,9 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
 
     <h3>飛行場地</h3>
     <div class="row" id="siteSel"></div>
+
+    <h3>輔助模式</h3>
+    <div class="row" id="assistSel"></div>
 
     <h3>飛行模式</h3>
     <div class="row" id="fmodeSel"></div>

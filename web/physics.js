@@ -127,6 +127,12 @@ export class FlightModel {
       const e = new Euler().setFromQuaternion(this.q, 'YXZ');
       if (Math.abs(e.z) < 1.3) target.z += -e.z * s.autoR * Math.max(0, 1 - Math.abs(ctrl.ail) * 3) * Math.min(aA, 1);
     }
+    // 輔助模式：失速保護（攻角接近失速時自動壓機頭）、自動協調轉彎（自動方向舵消除側滑）
+    if (ctrl.assistStall && !this.onGround) {
+      const m = alpha - 0.7 * s.stall * D2R;
+      if (m > 0) target.x -= m * 10;
+    }
+    if (ctrl.assistCoord && !this.onGround) target.y += -beta * 3;
     // 地面：前輪轉向（低速可原地小半徑掉頭，高速時轉向量遞減）
     if (this.onGround) {
       const gs = Math.hypot(this.vel.x, this.vel.z);
