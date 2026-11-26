@@ -64,9 +64,9 @@ export function buildWorld(scene, renderer, quality) {
   sun.position.copy(SUN_DIR).multiplyScalar(300);
   if (hi) {
     sun.castShadow = true;
-    sun.shadow.mapSize.set(1024, 1024);
+    sun.shadow.mapSize.set(2048, 2048);
     const sc = sun.shadow.camera;
-    sc.left = sc.bottom = -9; sc.right = sc.top = 9; sc.near = 1; sc.far = 1200;
+    sc.left = sc.bottom = -6; sc.right = sc.top = 6; sc.near = 1; sc.far = 1200;
     sun.shadow.bias = -0.0004; sun.shadow.normalBias = 0.02;
   }
   scene.add(sun, sun.target);
