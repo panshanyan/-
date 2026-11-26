@@ -12,7 +12,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
-const DEF = { assist: true, as: { route: true, stall: true, coord: true, roll: true, reverse: false, marker: true }, site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
+const DEF = { assistLvl: 70, assist: true, as: { route: true, stall: true, coord: true, roll: true, reverse: false, marker: true }, site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
   pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false], mode: [-1, false] }, fmode: 'stab' };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
@@ -282,6 +282,7 @@ function readInput() {
   const A = assistOn();
   input.assistStall = A && cfg.as.stall;
   input.assistCoord = A && cfg.as.coord;
+  input.assistLvl = cfg.assistLvl / 100;
   if (fm && A) {
     const e = fm.euler();
     // 滑跑時自動保持跑道方向與中心線（沒有主動打方向舵時）
@@ -291,7 +292,7 @@ function readInput() {
       const axis = north ? 0 : Math.PI;
       if (Math.abs(wrap(e.y - axis)) < 0.7) {
         const des = axis + Math.max(-0.25, Math.min(0.25, (north ? 1 : -1) * fm.pos.x * 0.06));
-        input.rud = clamp(wrap(e.y - des) * 3, -1, 1);
+        input.rud = clamp(wrap(e.y - des) * 3, -1, 1) * input.assistLvl;
       }
     }
     // 飛機朝自己飛來時，副翼／方向舵左右自動反向（地面目視）
@@ -1014,6 +1015,7 @@ function buildMenu() {
     el.value = cfg[key]; out.textContent = fmt(cfg[key]);
     el.oninput = () => { cfg[key] = +el.value; out.textContent = fmt(cfg[key]); save(); cb && cb(); };
   };
+  sl('sAssist', 'assistLvl', v => v === 0 ? '0%（只提示）' : v + '%');
   sl('sRate', 'rate', v => v + '%');
   sl('sExpo', 'expo', v => v + '%');
   sl('sWind', 'wind', v => v + ' m/s', applyWind);

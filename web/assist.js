@@ -1,5 +1,5 @@
 // 航線轉彎輔助：在五邊轉彎點／8 字圓周自動壓副翼並補升降舵，直線段只做輕微修正
-// 玩家該軸搖桿超過 15% 時以玩家為主
+// 玩家搖桿打越多，輔助越淡出
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 export function routeAssistCore(fm, input, pts, len, opt, RA) {
@@ -20,7 +20,8 @@ export function routeAssistCore(fm, input, pts, len, opt, RA) {
   const a0 = Math.atan2(t0[0] - pts[best][0], t0[1] - pts[best][1]), a1 = Math.atan2(t1[0] - tp[0], t1[1] - tp[1]);
   const turn = Math.abs(Math.atan2(Math.sin(a1 - a0), Math.cos(a1 - a0)));
   RA.corner = turn > 0.25 || !!opt.eight;
-  const w = RA.corner ? 1 : 0.35;
+  const lvl = input.assistLvl ?? 1; // 輔助強度 0~1
+  const w = (RA.corner ? 1 : 0.35) * lvl;
   // 期望航向 → 期望坡度（左轉為正，與 euler.z 同號）
   const want = Math.atan2(-(tp[0] - fm.pos.x), -(tp[1] - fm.pos.z));
   const err = Math.atan2(Math.sin(want - e.y), Math.cos(want - e.y));
@@ -34,9 +35,11 @@ export function routeAssistCore(fm, input, pts, len, opt, RA) {
   if (RA.corner) {
     const bankComp = Math.min(0.6, Math.abs(e.z)) * (input.stab ? 0 : 0.35);
     const hold = opt.descending || RA.altHold == null ? 0 : clamp((RA.altHold - fm.pos.y) * 0.08 - fm.vel.y * 0.12, -0.25, 0.25);
-    eleA = (bankComp + hold) * rate;
+    eleA = (bankComp + hold) * rate * lvl;
   }
-  if (Math.abs(input.ail) < 0.15 * rate) input.ail += (ailA - input.ail) * w;
-  if (RA.corner && Math.abs(input.ele) < 0.15 * rate) input.ele += eleA;
+  // 玩家搖桿越大，輔助越淡出（0～30% 之間平滑過渡），不會突然斷開
+  const fadeA = clamp(1 - Math.abs(input.ail) / (0.3 * rate), 0, 1), fadeE = clamp(1 - Math.abs(input.ele) / (0.3 * rate), 0, 1);
+  input.ail += (ailA - input.ail) * w * fadeA;
+  if (RA.corner) input.ele += eleA * fadeE;
   RA.active = true;
 }
