@@ -232,8 +232,8 @@ function expo(v) { const e = cfg.expo / 100; return (1 - e) * v + e * v * v * v;
 function readInput() {
   const L = sticks.L, R = sticks.R;
   let thr, ail, ele, rud;
-  if (cfg.mode === 2) { thr = (L.y + 1) / 2; rud = L.x; ele = R.y; ail = R.x; }
-  else { thr = (R.y + 1) / 2; rud = L.x; ele = L.y; ail = R.x; }
+  if (cfg.mode === 2) { thr = (L.y + 1) / 2; rud = L.x; ele = -R.y; ail = R.x; }
+  else { thr = (R.y + 1) / 2; rud = L.x; ele = -L.y; ail = R.x; }
   const ts = sticks[throttleStick()];
 
   // 鍵盤
@@ -252,8 +252,8 @@ function readInput() {
     const g = f => { const [i, inv] = cfg.map[f]; const v = padAxes[i] || 0; return inv ? -v : v; };
     ail = g('ail'); ele = g('ele'); rud = g('rud'); thr = clamp((g('thr') + 1) / 2, 0, 1);
     // 搖桿畫面同步顯示
-    const tL = cfg.mode === 2 ? [rud, thr * 2 - 1] : [rud, ele];
-    const tR = cfg.mode === 2 ? [ail, ele] : [ail, thr * 2 - 1];
+    const tL = cfg.mode === 2 ? [rud, thr * 2 - 1] : [rud, -ele];
+    const tR = cfg.mode === 2 ? [ail, -ele] : [ail, thr * 2 - 1];
     L.x = tL[0]; L.y = tL[1]; R.x = tR[0]; R.y = tR[1];
   }
   const rate = cfg.rate / 100;
@@ -345,14 +345,15 @@ function fpvCam(cam) {
   cam.quaternion.copy(fm.q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), 0.12));
   cam.fov = 95;
 }
-// 鎖定在飛機正後方、固定距離、跟著機身一起轉（飛機永遠占滿畫面，看地平線判斷姿態）
+// 地面目視小窗：鏡頭永遠水平、朝操作者正前方（面向跑道），角度固定不動，只平移跟著飛機
+const PILOT_DIR = new THREE.Vector3(-1, 0, 0);
 function lockedCam(cam) {
   cam.fov = 40;
   const half = Math.atan(Math.tan(cam.fov * Math.PI / 360) * cam.aspect);
-  const d = (fm.spec.span / 2) / Math.tan(half) * 1.08;
-  const up = d * 0.16;
-  cam.position.copy(new THREE.Vector3(0, up, d).applyQuaternion(fm.q).add(fm.pos));
-  cam.quaternion.copy(fm.q).multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.atan2(up - 0.03, d)));
+  const d = (fm.spec.span / 2) / Math.tan(half) * 1.25;
+  cam.up.set(0, 1, 0);
+  cam.position.copy(fm.pos).addScaledVector(PILOT_DIR, -d);
+  cam.lookAt(fm.pos.x + PILOT_DIR.x, fm.pos.y, fm.pos.z + PILOT_DIR.z);
 }
 function runCam(mode, cam, st, dt) {
   if (fm.crashed && mode !== 1) { cam.up.set(0, 1, 0); cam.lookAt(fm.pos); }
@@ -523,7 +524,7 @@ function buildMenu() {
     });
   };
   opts('camSel', [[1, '地面目視', '站在跑道邊看飛機，最像真實飛 RC'], [0, '第三人稱', '鏡頭跟在飛機後方'], [2, '第一人稱', '從機頭看出去（FPV）']], 'cam', () => setCam(cfg.cam));
-  opts('pipSel', [[1, '第三人稱', '正後方固定距離，飛機占滿小窗'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
+  opts('pipSel', [[1, '第三人稱', '水平朝操作者前方、角度固定，飛機占滿小窗'], [2, '第一人稱', '小窗顯示機頭畫面'], [0, '關閉', '只看地面視角']], 'pip', () => setCam(cfg.cam));
   $('pipRow').style.opacity = cfg.cam === 1 ? 1 : 0.45;
   for (const b of $('modeSel').children) {
     b.classList.toggle('sel', +b.dataset.mode === cfg.mode);
