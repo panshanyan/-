@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+<title>RC 飛行模擬</title>
+<style>
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none}
+html,body{margin:0;height:100%;overflow:hidden;background:#000;font-family:system-ui,-apple-system,"Noto Sans TC",sans-serif;color:#fff;touch-action:none}
+canvas#gl{position:fixed;inset:0;width:100%;height:100%;display:block}
+#hud{position:fixed;left:0;right:0;top:0;display:flex;justify-content:space-between;align-items:flex-start;padding:max(8px,env(safe-area-inset-top)) max(10px,env(safe-area-inset-right)) 0 max(10px,env(safe-area-inset-left));pointer-events:none}
+#tele{display:flex;gap:6px;flex-wrap:wrap}
+.pill{background:rgba(10,16,24,.55);backdrop-filter:blur(6px);border-radius:10px;padding:5px 10px;font-size:13px;line-height:1.15;min-width:64px}
+.pill b{display:block;font-size:19px;font-variant-numeric:tabular-nums}
+.pill small{opacity:.7;font-size:11px}
+#btns{display:flex;gap:6px;pointer-events:auto}
+.btn{background:rgba(10,16,24,.6);border:1px solid rgba(255,255,255,.18);color:#fff;border-radius:10px;height:40px;min-width:44px;padding:0 10px;font-size:14px;font-weight:600}
+.btn:active{background:rgba(255,120,40,.7)}
+.btn.on{background:rgba(255,110,30,.75)}
+#warn{position:fixed;top:64px;left:50%;transform:translateX(-50%);font-weight:800;font-size:20px;color:#ff5252;text-shadow:0 2px 6px #000;opacity:0;transition:opacity .2s;pointer-events:none}
+#toast{position:fixed;top:38%;left:50%;transform:translate(-50%,-50%);text-align:center;pointer-events:none;opacity:0;transition:opacity .3s}
+#toast h2{margin:0;font-size:34px;text-shadow:0 3px 12px rgba(0,0,0,.6)}
+#toast p{margin:6px 0 0;font-size:15px;opacity:.9;text-shadow:0 2px 6px #000}
+.stick{position:fixed;bottom:0;width:50%;height:72%;pointer-events:auto}
+#stickL{left:0}#stickR{right:0}
+.base{position:absolute;width:150px;height:150px;border-radius:24px;border:2px solid rgba(255,255,255,.35);background:rgba(10,16,24,.25);pointer-events:none}
+.base::before,.base::after{content:"";position:absolute;background:rgba(255,255,255,.2)}
+.base::before{left:50%;top:8px;bottom:8px;width:1px}.base::after{top:50%;left:8px;right:8px;height:1px}
+.knob{position:absolute;width:46px;height:46px;margin:-23px 0 0 -23px;border-radius:50%;background:radial-gradient(circle at 35% 30%,#fff,#bbb 60%,#777);box-shadow:0 3px 10px rgba(0,0,0,.5)}
+.lbl{position:absolute;bottom:-20px;left:0;right:0;text-align:center;font-size:11px;opacity:.65}
+#panel,#menu{position:fixed;inset:0;background:rgba(6,10,16,.82);backdrop-filter:blur(8px);display:none;overflow:auto;padding:max(16px,env(safe-area-inset-top)) max(20px,env(safe-area-inset-right)) 20px max(20px,env(safe-area-inset-left))}
+#panel.show,#menu.show{display:block}
+.card{max-width:760px;margin:0 auto}
+h1{font-size:30px;margin:6px 0 2px}h3{margin:18px 0 8px;font-size:15px;opacity:.85}
+.row{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:6px 0}
+.opt{flex:1;min-width:120px;background:rgba(255,255,255,.07);border:2px solid transparent;border-radius:12px;padding:10px;color:#fff;text-align:left;font-size:14px}
+.opt.sel{border-color:#ff7a1a;background:rgba(255,122,26,.15)}
+.opt b{display:block;font-size:16px;margin-bottom:2px}
+.opt span{opacity:.7;font-size:12px}
+label.sl{display:flex;align-items:center;gap:10px;font-size:14px;margin:8px 0}
+label.sl span{min-width:92px}
+label.sl input[type=range]{flex:1;accent-color:#ff7a1a}
+label.sl output{min-width:44px;text-align:right;font-variant-numeric:tabular-nums}
+.go{display:block;width:100%;margin:18px 0 6px;height:52px;border:0;border-radius:14px;background:linear-gradient(90deg,#ff7a1a,#ff4d3a);color:#fff;font-size:19px;font-weight:800}
+table.map{width:100%;border-collapse:collapse;font-size:13px}
+table.map td{padding:5px 4px}
+table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radius:6px;padding:4px}
+.bar{height:8px;background:#223;border-radius:4px;overflow:hidden;min-width:80px}
+.bar i{display:block;height:100%;background:#ff7a1a;width:50%}
+.mini{font-size:12px;opacity:.65;line-height:1.5}
+.foot{text-align:center;font-size:12px;opacity:.5;margin-top:10px}
+</style>
+</head>
+<body>
+<canvas id="gl"></canvas>
+
+<div id="hud">
+  <div id="tele">
+    <div class="pill"><small>空速</small><b id="tSpd">0</b><small>km/h</small></div>
+    <div class="pill"><small>高度</small><b id="tAlt">0</b><small>m</small></div>
+    <div class="pill"><small>油門</small><b id="tThr">0</b><small>%</small></div>
+    <div class="pill"><small>距離</small><b id="tDst">0</b><small>m</small></div>
+  </div>
+  <div id="btns">
+    <button class="btn" id="bCam">追尾</button>
+    <button class="btn" id="bSmoke">煙</button>
+    <button class="btn" id="bAir">空中</button>
+    <button class="btn" id="bReset">重置</button>
+    <button class="btn" id="bMenu">☰</button>
+  </div>
+</div>
+<div id="warn">失速！</div>
+<div id="toast"><h2 id="toastT"></h2><p id="toastP"></p></div>
+
+<div class="stick" id="stickL"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
+<div class="stick" id="stickR"><div class="base"><div class="knob"></div><div class="lbl"></div></div></div>
+
+<div id="menu" class="show">
+  <div class="card">
+    <h1>✈︎ RC 飛行模擬</h1>
+    <div class="mini">第三人稱航空模型飛機模擬器 · 支援觸控搖桿與 USB 遙控器</div>
+
+    <h3>選擇飛機</h3>
+    <div class="row" id="planeSel"></div>
+
+    <h3>操控</h3>
+    <div class="row" id="modeSel">
+      <button class="opt" data-mode="2"><b>Mode 2（美國手）</b><span>左：油門／方向　右：升降／副翼</span></button>
+      <button class="opt" data-mode="1"><b>Mode 1（日本手）</b><span>左：升降／方向　右：油門／副翼</span></button>
+    </div>
+    <label class="sl"><span>舵量</span><input type="range" id="sRate" min="30" max="130" step="5"><output></output></label>
+    <label class="sl"><span>Expo 指數</span><input type="range" id="sExpo" min="0" max="80" step="5"><output></output></label>
+    <label class="sl"><span>風速</span><input type="range" id="sWind" min="0" max="10" step="1"><output></output></label>
+    <label class="sl"><span>陣風</span><input type="range" id="sGust" min="0" max="100" step="10"><output></output></label>
+    <label class="sl"><span>畫質</span><input type="range" id="sQual" min="0" max="1" step="1"><output></output></label>
+    <label class="sl"><span>引擎聲音</span><input type="range" id="sVol" min="0" max="100" step="10"><output></output></label>
+
+    <h3>USB 遙控器／手把</h3>
+    <div class="mini">把遙控器用 USB OTG 接上手機並選「搖桿 (Joystick)」模式。按「偵測」後撥動對應的搖桿即可自動對應。</div>
+    <table class="map" id="mapTbl"></table>
+    <div class="row"><button class="btn" id="bPad">遙控器：關</button><span class="mini" id="padInfo">尚未偵測到遙控器</span></div>
+
+    <button class="go" id="bGo">開始飛行</button>
+    <div class="mini">小技巧：油門推到底滑跑，速度夠了輕拉升降舵起飛。地面視角最像真實飛 RC，飛機朝你飛來時左右是反的！</div>
+    <div class="foot">by ynfly_fpv</div>
+  </div>
+</div>
+
+<script>/*BUNDLE*/</script>
+</body>
+</html>
