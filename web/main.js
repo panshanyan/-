@@ -4,6 +4,7 @@ import { terrainHeight } from './terrain.js';
 import { buildWorld, PILOT, SUN_DIR } from './world.js';
 import { buildPlane } from './model.js';
 import { PAINTS } from './trainer.js';
+import { routeAssistCore } from './assist.js';
 import { LESSONS, Tutor } from './tutorial.js';
 import { ITEMS, Examiner, PAT, C8, BAND, PRE_CHECK, POST_CHECK, isPractice, phaseText } from './exam.js';
 
@@ -11,7 +12,7 @@ const $ = id => document.getElementById(id);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
 // ---------- 設定 ----------
-const DEF = { assist: true, as: { stall: true, coord: true, roll: true, reverse: false, marker: true }, site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
+const DEF = { assist: true, as: { route: true, stall: true, coord: true, roll: true, reverse: false, marker: true }, site: 'zhutian', paint: 'yellow', plane: 'trainer', mode: 2, rate: 80, expo: 30, wind: 2, gust: 30, qual: 1, vol: 50, cam: 1, pip: 1,
   pad: false, map: { ail: [0, false], ele: [1, true], thr: [2, true], rud: [3, false], mode: [-1, false] }, fmode: 'stab' };
 let cfg;
 try { cfg = Object.assign({}, DEF, JSON.parse(localStorage.getItem('rcsim') || '{}')); } catch (e) { cfg = { ...DEF }; }
@@ -274,6 +275,9 @@ function readInput() {
   if (padOn && cfg.map.mode[0] >= 0) { const v = padAxes[cfg.map.mode[0]] || 0; st = (cfg.map.mode[1] ? -v : v) > 0; }
   if (st !== input.stab) { input.stab = st; updateModeBtn(); }
   input.rate = cfg.rate / 100;
+  input.ail = expo(clamp(ail, -1, 1)) * rate;
+  input.ele = expo(clamp(ele, -1, 1)) * rate;
+  input.rud = expo(clamp(rud, -1, 1)) * rate;
   // ---- 輔助模式 ----
   const A = assistOn();
   input.assistStall = A && cfg.as.stall;
@@ -299,9 +303,7 @@ function readInput() {
     } else revOn = false;
     if (revOn) { input.ail = -input.ail; input.rud = -input.rud; }
   } else revOn = false;
-  input.ail = expo(clamp(ail, -1, 1)) * rate;
-  input.ele = expo(clamp(ele, -1, 1)) * rate;
-  input.rud = expo(clamp(rud, -1, 1)) * rate;
+  routeAssist(A);
 }
 
 function drawSticks() {
@@ -482,6 +484,8 @@ const guides = (() => {
       const a = new THREE.Mesh(cg, arrowM); a.position.copy(p); a.lookAt(p.clone().sub(d)); grp.add(a);
     }
     toLayer(grp); grp.visible = false; G.add(grp);
+    // 航線取樣點（給航線轉彎輔助用）
+    grp.userData.pts = curve.getSpacedPoints(600).slice(0, -1).map(v => [v.x, v.z]); grp.userData.len = curve.getLength();
     return grp;
   }
   // 左航線矩形（圓角）：第五邊→第一邊往北、第二邊往西、第三邊往南、第四邊往東
@@ -530,6 +534,22 @@ function updateGuides(dt) {
   }
 }
 
+// ---------- 輔助：航線轉彎輔助（五邊／8 字）----------
+// 在轉彎點自動壓副翼轉彎並補升降舵；直線段只做輕微修正。玩家搖桿打超過 15% 就以玩家為主。
+const RA = { active: false, corner: false, altHold: null, idx: -1 };
+function routeAssistPhaseOk(it, p) {
+  return { takeoff: p >= 1, pattern: true, eight: true, landing: p <= 1, emergency: p <= 1 }[it.id];
+}
+function routeAssist(A) {
+  RA.active = RA.corner = false;
+  if (!A || !cfg.as.route || game.mode !== 'exam' || !examiner.active || !fm || fm.onGround || fm.crashed) { RA.altHold = null; return; }
+  const it = ITEMS[examiner.item];
+  if (!it || !routeAssistPhaseOk(it, examiner.phase)) { RA.altHold = null; return; }
+  const grp = it.id === 'eight' ? guides.eight : guides.pattern;
+  const descending = it.id === 'landing' && examiner.phase >= 1 || it.id === 'emergency' && examiner.phase >= 2;
+  routeAssistCore(fm, input, grp.userData.pts, grp.userData.len, { eight: it.id === 'eight', descending }, RA);
+}
+
 // ---------- 輔助：飛機方向標記 ----------
 const _v1 = new THREE.Vector3(), _v2 = new THREE.Vector3();
 function updateMarker() {
@@ -546,7 +566,8 @@ function updateMarker() {
   el.style.left = sx + 'px'; el.style.top = sy + 'px';
   el.querySelector("i").style.transform = `rotate(${ang}rad)`;
   const alt = fm.pos.y - terrainHeight(fm.pos.x, fm.pos.z) - fm.gearH;
-  el.querySelector('b').textContent = `${Math.max(0, alt).toFixed(0)} m` + (revOn ? ' · ↔反向' : '');
+  el.querySelector('b').textContent = `${Math.max(0, alt).toFixed(0)} m` + (revOn ? ' · ↔反向' : '') + (RA.active && RA.corner ? ' · 🧭自動轉彎' : '');
+  $('bAssist').textContent = RA.active && RA.corner ? '轉彎中' : '輔助';
 }
 
 // ---------- HUD ----------
@@ -961,7 +982,7 @@ function buildMenu() {
     });
   };
   const asEl = $('assistSel'); asEl.innerHTML = '';
-  const AS = [['assist', '輔助模式總開關', '關閉時以下全部停用；正式測驗一律不提供'], ['stall', '失速保護', '速度太慢、拉太多時自動壓機頭'], ['coord', '自動協調轉彎', '自動配合方向舵，轉彎不側滑'], ['roll', '滑跑保持直線', '起飛滑跑自動對正跑道中心線'], ['reverse', '迎面左右反向', '飛機朝你飛來時，左右操作自動反過來（符合畫面方向）'], ['marker', '飛機方向標記', '主畫面在飛機旁顯示機頭方向與高度']];
+  const AS = [['assist', '輔助模式總開關', '關閉時以下全部停用；正式測驗一律不提供'], ['route', '航線轉彎輔助', '練習五邊／8 字時，到轉彎點自動壓副翼轉彎並補升降舵；你打搖桿時以你為主'], ['stall', '失速保護', '速度太慢、拉太多時自動壓機頭'], ['coord', '自動協調轉彎', '自動配合方向舵，轉彎不側滑'], ['roll', '滑跑保持直線', '起飛滑跑自動對正跑道中心線'], ['reverse', '迎面左右反向', '飛機朝你飛來時，左右操作自動反過來（符合畫面方向）'], ['marker', '飛機方向標記', '主畫面在飛機旁顯示機頭方向與高度']];
   for (const [k, t, d] of AS) {
     const b = document.createElement('button');
     const on = k === 'assist' ? cfg.assist : cfg.as[k];
@@ -1070,7 +1091,7 @@ $('bAssist').onclick = () => {
   toast(cfg.assist ? '輔助模式：開' : '輔助模式：關', cfg.assist ? assistDesc() : '所有輔助功能已關閉', 2.6);
 };
 function assistDesc() {
-  const n = { stall: '失速保護', coord: '自動協調轉彎', roll: '滑跑保持直線', reverse: '迎面左右反向', marker: '飛機方向標記' };
+  const n = { route: '航線轉彎輔助', stall: '失速保護', coord: '自動協調轉彎', roll: '滑跑保持直線', reverse: '迎面左右反向', marker: '飛機方向標記' };
   return Object.keys(n).filter(k => cfg.as[k]).map(k => n[k]).join('、') || '（未勾選任何項目）';
 }
 updateAssistBtn();
