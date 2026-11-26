@@ -91,6 +91,7 @@ export const ITEMS = [
   },
   {
     id: 'pattern', code: 'D', name: '高度保持五邊飛行', setup: null,
+    practice: { air: true, x: PAT.xFar, y: 30, z: -60, heading: Math.PI, thr: 0.55 },
     brief: '接續起飛，維持穩定航高飛完整一圈五邊航線。轉向時準確操作副翼與升降舵，第一邊與第五邊須穩定準確通過跑道正前方。',
     phases: [
       { text: '第三邊：平行跑道往南飛，保持航高', check: (c, S) => { S.tracking = true; trackSmooth(c, S); return c.fm.pos.z > PAT.zS - 20; } },
@@ -109,6 +110,7 @@ export const ITEMS = [
   },
   {
     id: 'eight', code: 'D', name: '水平 8 字', setup: null,
+    practice: { air: true, x: PILOT.x - 25, y: 30, z: PILOT.z, heading: Math.PI / 2, thr: 0.55 },
     brief: '由 P1–P4 任一點進入，交叉點 P5 在飛手正前方約 50 m（地圖上的 ✚）。先轉一圈再反方向轉一圈，全程保持高度，不可通過飛手頭頂上方。',
     phases: [
       { text: '飛向交叉點 P5（飛手正前方 50 m），保持高度', check: (c, S) => { if (d8(c.fm.pos) < 22) { S.tracking = true; return true; } } },
@@ -146,6 +148,7 @@ export const ITEMS = [
   },
   {
     id: 'landing', code: 'E', name: '降落航線及落地', setup: null,
+    practice: { air: true, x: PAT.xFar, y: 28, z: -100, heading: Math.PI, thr: 0.5 },
     brief: '維持五邊正常航線降落，等速飄降，降落點不得超越中線。無法順利進場可重飛一次（飛過中線北方即視為重飛）。落地後滑行掉頭停止。',
     phases: [
       { text: '口令 → 加入第三邊（順風邊），準備降落', check: c => c.fm.vel.z > 3 && c.fm.pos.x < -60 && c.fm.pos.z > PAT.zN + 40 },
@@ -204,11 +207,12 @@ export class Examiner {
   constructor(ui) { this.ui = ui; this.active = false; }
   get groundOnly() { return this.active && !!(ITEMS[this.item] && ITEMS[this.item].groundOnly); }
 
-  start() { this.active = true; this.finished = false; this.results = []; this.item = 0; this.beginItem(); }
+  // single：練習模式只考單一科目（傳入科目索引）
+  start(single = null) { this.single = single; this.active = true; this.finished = false; this.results = []; this.item = single ?? 0; this.beginItem(); }
   beginItem() {
     const it = ITEMS[this.item];
     this.S = {}; this.phase = 0; this.t = 0; this.prevYaw = null;
-    this.ui.setup(it, this.item);
+    this.ui.setup(it, this.item, this.single !== null ? (it.practice || it.setup) : it.setup);
     this.enterPhase();
   }
   enterPhase() { this.st = {}; this.pending = true; this.ui.phase(this.item, ITEMS[this.item], this.phase); }
@@ -261,6 +265,7 @@ export class Examiner {
     this.results.push({ code: it.code, name: it.name, score, pass, notes });
     this.ui.itemDone(this.item, it, score, pass, notes);
     this.item++;
+    if (this.single !== null) { this.finished = true; this.active = false; this.ui.report(this.results, fatal, true); return; }
     if (fatal || this.item >= ITEMS.length) {
       this.finished = true; this.active = false;
       for (let i = this.item; i < ITEMS.length; i++) this.results.push({ code: ITEMS[i].code, name: ITEMS[i].name, score: null, pass: false, notes: ['未測驗'] });

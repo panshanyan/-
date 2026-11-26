@@ -529,8 +529,9 @@ cfg.done = cfg.done || {};
 function pause() { paused = true; if (gain) gain.gain.value = 0; }
 function resume() { paused = false; audioStart(); last = performance.now(); accum = 0; }
 function show(id) {
-  for (const k of ['home', 'tutList']) $(k).classList.toggle('show', k === id);
+  for (const k of ['home', 'tutList', 'examList']) $(k).classList.toggle('show', k === id);
   if (id === 'tutList') buildLessons();
+  if (id === 'examList') buildExamList();
   if (id === 'home') $('examBadge').textContent = cfg.examPassed ? '✓ 已合格' : (cfg.examBest ? `最佳 ${cfg.examBest} 分` : '定翼術科');
   if (id === 'home') $('tutProg').textContent = LESSONS.filter(l => cfg.done[l.id]).length + '/' + LESSONS.length;
 }
@@ -646,10 +647,29 @@ $('mTut').onclick = () => show('tutList');
 $('mExam').onclick = openExam;
 
 // ---------- 考照模式 ----------
-function openExam() {
+function openExam() { show('examList'); }
+function buildExamList() {
+  cfg.practice = cfg.practice || {};
+  const el = $('practiceList'); el.innerHTML = '';
+  ITEMS.forEach((it, i) => {
+    const b = document.createElement('button'); b.className = 'lsn';
+    const best = cfg.practice[it.id];
+    b.innerHTML = `<div class="n">科目 ${it.code}</div><b>${it.name}</b><span>${it.brief.slice(0, 42)}…</span>${best != null ? `<div class="ok" style="color:${best >= 70 ? '#4cd98a' : '#ffb74d'}">最佳 ${best}</div>` : ''}`;
+    b.onclick = () => openPractice(i);
+    el.appendChild(b);
+  });
+  $('examBest').textContent = cfg.examPassed ? `✓ 已合格 · 最佳 ${cfg.examBest} 分` : (cfg.examBest ? `最佳 ${cfg.examBest} 分` : '尚未應考');
+}
+function openTest() {
   const list = ITEMS.map(it => `<b>${it.code}. ${it.name}</b><br><span style="opacity:.75;font-size:13px">${it.brief}</span>`).join('<br>');
-  dlg('📋 考照模式：無人飛機術科（基本級）', '', [['返回', () => show('home')], ['開始考試', startExam, true]],
-    `<span style="opacity:.75;font-size:13px">依民航局「無人飛機專業操作證術科測驗基準」程序模擬。A 飛行前檢查 → B~F 術科 → G 飛行後檢查。</span><br>${list}<br><span style="opacity:.75;font-size:13px">重大違失（墜機、超越應考人後方、通過頭頂）立即不合格。各項 70 分以上為通過；航高 ${BAND[0]}–${BAND[1]} m 等數值為模擬設定。建議使用地面目視視角，右上角小地圖顯示航線。</span>`);
+  dlg('📋 測驗模式：完整術科（基本級）', '', [['返回', () => show('examList')], ['開始測驗', () => startExam(null), true]],
+    `<span style="opacity:.75;font-size:13px">依民航局「無人飛機專業操作證術科測驗基準」程序連續進行：A 飛行前檢查 → B~F 術科 → G 飛行後檢查。</span><br>${list}<br><span style="opacity:.75;font-size:13px">重大違失（墜機、超越應考人後方、通過頭頂）立即不合格。各項 70 分以上為通過；航高 ${BAND[0]}–${BAND[1]} m 等數值為模擬設定。</span>`);
+}
+function openPractice(i) {
+  const it = ITEMS[i];
+  const start = it.practice ? '（直接從空中航線開始）' : '（從跑道上開始）';
+  dlg(`🎯 練習：${it.code}. ${it.name}`, '', [['返回', () => show('examList')], ['開始練習', () => startExam(i), true]],
+    `${it.brief}<br><span style="opacity:.7;font-size:13px">${start} 練習結果不會計入測驗成績。</span>`);
 }
 function checklist(title, items, done) {
   const st = items.map(() => false);
@@ -664,26 +684,29 @@ function checklist(title, items, done) {
     const all = st.every(Boolean); go.disabled = !all; go.style.opacity = all ? 1 : 0.4;
   });
 }
-function startExam() {
-  game.mode = 'exam'; game.lesson = null;
+// single = null：測驗模式（全部科目連續）；single = 索引：練習模式（單一科目）
+function startExam(single = null) {
+  game.mode = 'exam'; game.lesson = null; game.single = single;
   if (!fm || fm.spec !== PLANES.trainer) loadPlane('trainer');
   resetPlane(false, { z: ITEMS[0].setup.z });
   pause(); show(null);
-  checklist('A. 飛行前檢查', PRE_CHECK, () => {
-    $('bAir').style.display = 'none'; $('bReset').style.display = 'none';
+  const go = () => {
+    $('bAir').style.display = 'none';
+    $('bReset').style.display = single !== null ? '' : 'none'; $('bReset').textContent = '重來';
     $('tut').classList.add('show'); $('mini').style.display = 'block';
     trail.length = 0;
-    examiner.start();
+    examiner.start(single);
     resume();
-  });
+  };
+  if (single === null) checklist('A. 飛行前檢查', PRE_CHECK, go); else go();
 }
 const examiner = new Examiner({
-  setup(it, i) {
-    if (it.setup) { resetPlane(false, it.setup); if (i > 0) toast('飛機已就定位', `${it.code}. ${it.name}`, 2.5); }
+  setup(it, i, so) {
+    if (so) { resetPlane(!!so.air, so); if (i > 0 && game.single === null) toast('飛機已就定位', `${it.code}. ${it.name}`, 2.5); }
     setHL(null);
   },
   phase(i, it, p) {
-    $('tutL').textContent = `考照 · ${it.code}. ${it.name}`;
+    $('tutL').textContent = `${game.single !== null ? '練習' : '測驗'} · ${it.code}. ${it.name}`;
     $('tutN').textContent = `${p + 1} / ${it.phases.length}`;
     $('tutT').textContent = it.phases[p].text;
     $('tutH').textContent = '';
@@ -695,13 +718,26 @@ const examiner = new Examiner({
   itemDone(i, it, score, pass) {
     toast(`${pass ? '✅' : '❌'} ${it.code}. ${it.name}`, pass ? `通過 · ${score} 分` : `未通過 · ${score} 分`, 3);
   },
-  report(res, fatal) {
+  report(res, fatal, practice) {
+    if (practice) {
+      const r = res[0], i = game.single, next = ITEMS[i + 1];
+      cfg.practice = cfg.practice || {};
+      cfg.practice[ITEMS[i].id] = Math.max(cfg.practice[ITEMS[i].id] ?? 0, r.score || 0); save();
+      setTimeout(() => {
+        pause(); $('tut').classList.remove('show');
+        const acts = [['練習選單', () => { goHome(); show('examList'); }], ['再練一次', () => startExam(i), true]];
+        if (next) acts.splice(1, 0, ['下一科', () => openPractice(i + 1)]);
+        dlg(`${r.pass ? '✅ 通過' : '❌ 未通過'}　${r.code}. ${r.name}`, '', acts,
+          `<div style="font-size:30px;font-weight:800;margin:4px 0">${r.score} 分</div>${r.notes.map(n => '• ' + n).join('<br>')}<br><span style="opacity:.6;font-size:13px">本科最佳 ${cfg.practice[ITEMS[i].id]} 分</span>`);
+      }, fm.crashed ? 1800 : 700);
+      return;
+    }
     const finish = () => {
       pause(); $('tut').classList.remove('show');
       const ok = res.every(r => r.pass), total = res.reduce((a, r) => a + (r.score || 0), 0);
       cfg.examBest = Math.max(cfg.examBest || 0, total); if (ok) cfg.examPassed = true; save();
       const rows = res.map(r => `<tr><td>${r.code}. ${r.name}</td><td class="sc">${r.score ?? '—'}</td><td>${r.score === null ? '⏸' : r.pass ? '✅' : '❌'}</td></tr><tr><td colspan="3" class="nt">${r.notes.join('、')}</td></tr>`).join('');
-      dlg(ok ? '🎉 術科測驗合格！' : '術科測驗不合格', '', [['回主畫面', goHome], ['再考一次', startExam, true]],
+      dlg(ok ? '🎉 術科測驗合格！' : '術科測驗不合格', '', [['考照選單', () => { goHome(); show('examList'); }], ['再考一次', () => startExam(null), true]],
         `<table class="rep">${rows}</table><div style="margin-top:8px">總分 <b>${total}</b> / ${ITEMS.length * 100}　·　最佳 ${cfg.examBest}</div>`);
     };
     setTimeout(() => {
@@ -752,11 +788,13 @@ function drawMini(dt) {
 }
 
 $('tlBack').onclick = () => show('home');
+$('elBack').onclick = () => show('home');
+$('mTest').onclick = openTest;
 $('hSet').onclick = () => { show(null); $('menu').classList.add('show'); $('bGo').textContent = '完成'; $('bHome').style.display = 'none'; };
 window.__pause = () => { if (game.mode && !paused) $('bMenu').click(); };
 window.__back = () => {
   if ($('dlg').classList.contains('show')) return 'ok';
-  if ($('tutList').classList.contains('show')) { show('home'); return 'ok'; }
+  if ($('tutList').classList.contains('show') || $('examList').classList.contains('show')) { show('home'); return 'ok'; }
   if ($('home').classList.contains('show')) return 'exit';
   if ($('menu').classList.contains('show')) { $('bGo').click(); return 'ok'; }
   $('bMenu').click(); return 'ok';
@@ -857,7 +895,7 @@ $('bGo').onclick = () => {
 };
 $('bMenu').onclick = () => { pause(); $('menu').classList.add('show'); $('bGo').textContent = '繼續飛行'; $('bHome').style.display = ''; };
 $('bHome').onclick = goHome;
-$('bReset').onclick = () => game.mode === 'tut' ? startLesson(game.lesson) : resetPlane(false);
+$('bReset').onclick = () => game.mode === 'tut' ? startLesson(game.lesson) : game.mode === 'exam' ? (game.single !== null && startExam(game.single)) : resetPlane(false);
 $('bAir').onclick = () => resetPlane(true);
 $('bSmoke').onclick = () => { smoke.on = !smoke.on; $('bSmoke').classList.toggle('on', smoke.on); };
 $('bCam').onclick = () => { setCam((cfg.cam + 1) % 3); buildMenu(); };

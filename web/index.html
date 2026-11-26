@@ -146,6 +146,18 @@ table.map select{background:#1b2430;color:#fff;border:1px solid #445;border-radi
   </div>
 </div>
 
+<div id="examList" class="screen">
+  <div class="card">
+    <button class="back" id="elBack">‹ 返回</button>
+    <h1>📋 考照模式</h1>
+    <div class="mini">依民航局「無人飛機專業操作證術科測驗基準」基本級程序。使用練習機，建議地面目視視角。</div>
+    <h3>測驗模式</h3>
+    <button class="mode m-exam" id="mTest" style="width:100%;min-height:0;padding:14px 16px"><b style="margin:0">完整術科測驗</b><span>A 飛行前檢查 → B 滑行 → C 起飛 → D 五邊＋8 字 → E 降落 → F 迫降 → G 飛行後檢查，連續進行並評定合格</span><div class="badge" id="examBest">尚未應考</div></button>
+    <h3>練習模式（各科目分開練）</h3>
+    <div class="lessons" id="practiceList"></div>
+  </div>
+</div>
+
 <div id="dlg"><div class="box"><h2 id="dT"></h2><p id="dP"></p><div class="acts" id="dA"></div></div></div>
 <div id="tut"><div class="hd"><span id="tutL"></span><span id="tutN"></span></div><div class="tx" id="tutT"></div><div class="hi" id="tutH"></div></div>
 <canvas id="mini"></canvas>
