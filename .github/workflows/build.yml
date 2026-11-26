@@ -1,7 +1,7 @@
 name: Build APK
 on:
   push:
-    branches: [main]
+    branches: [bb-analyzer]
   workflow_dispatch:
 permissions:
   contents: write
@@ -29,3 +29,4 @@ jobs:
           body: 下載下面的 BBAnalyzer-v${{ github.run_number }}.apk 安裝。
           files: BBAnalyzer-v${{ github.run_number }}.apk
           make_latest: true
+          target_commitish: ${{ github.sha }}
